@@ -32,6 +32,7 @@ def main() -> int:
             "hardening": {
                 "enforce_provenance": True,
                 "enforce_external_evidence": True,
+                "self_eval_enforced": False,
                 "max_per_writer": 0.20,
                 "max_per_conversation": 0.05,
             },

@@ -6,7 +6,6 @@ import base64
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .schemas import MemoryRecord, NumericEncoding
+from .self_eval import enrich_self_evaluation
 
 
 def utc_now_iso() -> str:
@@ -39,9 +39,10 @@ class BlobMaterialization:
 class MemoryPersistence:
     """Atomic dual persistence: blob files + SQLite index."""
 
-    def __init__(self, db_path: Path, blob_dir: Path):
+    def __init__(self, db_path: Path, blob_dir: Path, *, self_eval_enforced: bool = False):
         self.db_path = Path(db_path)
         self.blob_dir = Path(blob_dir)
+        self.self_eval_enforced = bool(self_eval_enforced)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.blob_dir.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -233,6 +234,7 @@ class MemoryPersistence:
 
     def save_memory_record(self, payload: MemoryRecord | dict) -> MemoryRecord:
         record = MemoryRecord.model_validate(payload)
+        record = enrich_self_evaluation(record, enforce=self.self_eval_enforced)
         blob = self._materialize_blob(record)
 
         try:
@@ -298,4 +300,3 @@ class MemoryPersistence:
         with self._conn() as conn:
             row = conn.execute("SELECT COUNT(1) AS c FROM blobs").fetchone()
             return int(row["c"])
-

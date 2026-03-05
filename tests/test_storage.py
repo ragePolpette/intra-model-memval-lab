@@ -8,6 +8,7 @@ import pytest
 
 from intra_model_memval.schemas import MemoryRecord
 from intra_model_memval.storage import MemoryPersistence
+from intra_model_memval.self_eval import SelfEvalValidationError
 
 
 def _record(entry_id: str, payload: bytes, *, importance_score: int = 50) -> MemoryRecord:
@@ -103,3 +104,55 @@ def test_batch_smoke_performance(persistence: MemoryPersistence):
     assert persistence.count_records() == 100
     assert elapsed < 5.0
 
+
+def test_self_eval_enforced_rejects_missing_fields(tmp_path: Path):
+    persistence = MemoryPersistence(
+        db_path=tmp_path / "enf.db",
+        blob_dir=tmp_path / "blobs",
+        self_eval_enforced=True,
+    )
+    record = _record("e-enf-miss", b"\x01\x02")
+
+    with pytest.raises(SelfEvalValidationError):
+        persistence.save_memory_record(record)
+
+
+def test_self_eval_enforced_computes_scores_and_context_hash(tmp_path: Path):
+    persistence = MemoryPersistence(
+        db_path=tmp_path / "enf-ok.db",
+        blob_dir=tmp_path / "blobs",
+        self_eval_enforced=True,
+    )
+    record = _record("e-enf-ok", b"\xAA\xBB\xCC")
+    record.metadata = {
+        "project_id": "prj-a",
+        "scope": "shared",
+        "top_similarities": [0.5, 0.2],
+        "context_fingerprint": {
+            "conversation_id": "conv-1",
+            "task_id": "task-1",
+            "retrieved_ids": ["d2", "d1", "d1"],
+            "tool_trace_fingerprint": {"tool": "db_read", "rows": 1},
+            "prompt_fingerprint": "pf-1",
+        },
+        "importance": {
+            "confidence": 0.2,
+            "tool_steps": 10,
+            "correction_count": 2,
+            "inference_level": 4,
+            "negative_impact": 0.2,
+            "is_external": True,
+        },
+    }
+
+    saved = persistence.save_memory_record(record)
+    loaded = persistence.load_memory_record("e-enf-ok")
+    assert loaded is not None
+
+    assert saved.importance_score == 75
+    assert saved.novelty_score == 0.5
+    assert len(saved.context_hash) == 16
+    assert saved.metadata["surprise_source"] == "confidence"
+    assert saved.metadata["novelty_computed"] is True
+    assert loaded.importance_score == 75
+    assert loaded.context_hash == saved.context_hash

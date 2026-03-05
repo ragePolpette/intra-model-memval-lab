@@ -91,6 +91,7 @@
   - `load_memory_record(entry_id)`
 - Guarantees:
   - schema validation before persistence
+  - self-evaluation validation/scoring in save path (toggleable enforcement)
   - idempotent upsert by `entry_id`
   - dual persistence (blob numeric + sqlite metadata/text shadow)
   - logical rollback on transaction failure
