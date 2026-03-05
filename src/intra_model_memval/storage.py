@@ -107,6 +107,8 @@ class MemoryPersistence:
                 CREATE INDEX IF NOT EXISTS idx_records_context_hash ON records(context_hash);
                 CREATE INDEX IF NOT EXISTS idx_records_importance ON records(importance_score);
                 CREATE INDEX IF NOT EXISTS idx_records_category ON records(category);
+                CREATE INDEX IF NOT EXISTS idx_records_external ON records(is_external);
+                CREATE INDEX IF NOT EXISTS idx_records_created ON records(created_at_utc);
                 """
             )
 
@@ -332,6 +334,105 @@ class MemoryPersistence:
                 schema_version=row["schema_version"],
                 model_fingerprint=row["model_fingerprint"],
             )
+
+    @staticmethod
+    def _from_row(row: sqlite3.Row) -> MemoryRecord:
+        return MemoryRecord(
+            entry_id=row["entry_id"],
+            category=row["category"],
+            raw_numeric={
+                "dtype": row["numeric_dtype"],
+                "shape": json.loads(row["numeric_shape_json"]),
+                "encoding": row["numeric_encoding"],
+                "blob_path": row["blob_path"],
+                "blob_hash": row["blob_hash"],
+            },
+            text_view=row["text_view"],
+            modality_primary=row["modality_primary"],
+            importance_score=int(row["importance_score"]),
+            novelty_score=float(row["novelty_score"]),
+            is_external=bool(row["is_external"]),
+            provenance_level=row["provenance_level"],
+            context_hash=row["context_hash"],
+            writer_model=row["writer_model"],
+            writer_agent_id=row["writer_agent_id"],
+            created_at_utc=row["created_at_utc"],
+            metadata=json.loads(row["metadata_json"]),
+            schema_version=row["schema_version"],
+            model_fingerprint=row["model_fingerprint"],
+        )
+
+    def list_records(
+        self,
+        *,
+        category: str | None = None,
+        is_external: bool | None = None,
+        context_hash: str | None = None,
+        min_importance_score: int | None = None,
+        max_importance_score: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[MemoryRecord]:
+        sql = ["SELECT * FROM records WHERE 1=1"]
+        params: list[object] = []
+
+        if category:
+            sql.append("AND category = ?")
+            params.append(category)
+        if is_external is not None:
+            sql.append("AND is_external = ?")
+            params.append(int(is_external))
+        if context_hash:
+            sql.append("AND context_hash = ?")
+            params.append(context_hash)
+        if min_importance_score is not None:
+            sql.append("AND importance_score >= ?")
+            params.append(int(min_importance_score))
+        if max_importance_score is not None:
+            sql.append("AND importance_score <= ?")
+            params.append(int(max_importance_score))
+
+        sql.append("ORDER BY importance_score DESC, created_at_utc ASC, entry_id ASC LIMIT ? OFFSET ?")
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+
+        with self._conn() as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+            return [self._from_row(row) for row in rows]
+
+    def search_records(
+        self,
+        query: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        category: str | None = None,
+        is_external: bool | None = None,
+        min_importance_score: int | None = None,
+        max_importance_score: int | None = None,
+    ) -> list[MemoryRecord]:
+        sql = ["SELECT * FROM records WHERE (entry_id LIKE ? OR text_view LIKE ? OR metadata_json LIKE ?)"]
+        pattern = f"%{query}%"
+        params: list[object] = [pattern, pattern, pattern]
+
+        if category:
+            sql.append("AND category = ?")
+            params.append(category)
+        if is_external is not None:
+            sql.append("AND is_external = ?")
+            params.append(int(is_external))
+        if min_importance_score is not None:
+            sql.append("AND importance_score >= ?")
+            params.append(int(min_importance_score))
+        if max_importance_score is not None:
+            sql.append("AND importance_score <= ?")
+            params.append(int(max_importance_score))
+
+        sql.append("ORDER BY importance_score DESC, created_at_utc ASC, entry_id ASC LIMIT ? OFFSET ?")
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+
+        with self._conn() as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+            return [self._from_row(row) for row in rows]
 
     def count_records(self) -> int:
         with self._conn() as conn:

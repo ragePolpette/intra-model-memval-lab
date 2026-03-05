@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from intra_model_memval.schemas import MemoryRecord
+from intra_model_memval.schemas import Category, MemoryRecord
 from intra_model_memval.storage import MemoryPersistence
 from intra_model_memval.self_eval import SelfEvalValidationError
 
@@ -184,3 +184,61 @@ def test_self_eval_enforced_computes_scores_and_context_hash(tmp_path: Path):
     assert saved.metadata["novelty_computed"] is True
     assert loaded.importance_score == 75
     assert loaded.context_hash == saved.context_hash
+
+
+def test_list_records_filters_and_pagination(persistence: MemoryPersistence):
+    records = [
+        _record("q-1", b"\x01", importance_score=10),
+        _record("q-2", b"\x02", importance_score=80),
+        _record("q-3", b"\x03", importance_score=60),
+    ]
+    records[0].category = Category.ASSUMPTION
+    records[1].category = Category.FACT
+    records[2].category = Category.FACT
+    records[2].is_external = False
+    records[2].context_hash = "ctx-xyz-00000000"
+
+    persistence.save_many(records)
+
+    only_fact = persistence.list_records(category="fact")
+    assert [r.entry_id for r in only_fact] == ["q-2", "q-3"]
+
+    external_only = persistence.list_records(is_external=True)
+    assert [r.entry_id for r in external_only] == ["q-2", "q-1"]
+
+    high_only = persistence.list_records(min_importance_score=70)
+    assert [r.entry_id for r in high_only] == ["q-2"]
+
+    by_context = persistence.list_records(context_hash="ctx-xyz-00000000")
+    assert [r.entry_id for r in by_context] == ["q-3"]
+
+    page1 = persistence.list_records(limit=2, offset=0)
+    page2 = persistence.list_records(limit=2, offset=2)
+    assert [r.entry_id for r in page1] == ["q-2", "q-3"]
+    assert [r.entry_id for r in page2] == ["q-1"]
+
+
+def test_search_records_with_filters(persistence: MemoryPersistence):
+    a = _record("s-1", b"\xAA", importance_score=77)
+    a.text_view = "critical pipeline alert"
+    a.metadata["note"] = "alpha"
+
+    b = _record("s-2", b"\xBB", importance_score=35)
+    b.text_view = "ordinary trace"
+    b.is_external = False
+    b.metadata["note"] = "beta"
+
+    c = _record("s-3", b"\xCC", importance_score=88)
+    c.text_view = "critical manual report"
+    c.metadata["note"] = "gamma"
+
+    persistence.save_many([a, b, c])
+
+    critical = persistence.search_records("critical")
+    assert [r.entry_id for r in critical] == ["s-3", "s-1"]
+
+    by_meta = persistence.search_records("beta")
+    assert [r.entry_id for r in by_meta] == ["s-2"]
+
+    filtered = persistence.search_records("critical", is_external=True, min_importance_score=80)
+    assert [r.entry_id for r in filtered] == ["s-3"]

@@ -89,6 +89,8 @@
   - `save_memory_record(record)`
   - `save_many(records)` (single-transaction batch)
   - `load_memory_record(entry_id)`
+  - `list_records(...)` (filtered + paginated)
+  - `search_records(query, ...)` (text/meta search + filters)
 - Guarantees:
   - schema validation before persistence
   - self-evaluation validation/scoring in save path (toggleable enforcement)
@@ -97,3 +99,4 @@
   - dual persistence (blob numeric + sqlite metadata/text shadow)
   - logical rollback on transaction failure
   - indexes for `context_hash`, `importance_score`, `category`
+  - query pagination order stable: `importance desc`, `created_at asc`, `entry_id asc`
