@@ -1,0 +1,25 @@
+[project]
+name = "intra-model-memval-lab"
+version = "0.1.0"
+description = "Standalone lab for categorized intra-model memory validation and export"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/intra_model_memval"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
