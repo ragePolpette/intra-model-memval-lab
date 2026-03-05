@@ -105,6 +105,34 @@ def test_batch_smoke_performance(persistence: MemoryPersistence):
     assert elapsed < 5.0
 
 
+def test_save_many_empty_returns_empty(persistence: MemoryPersistence):
+    assert persistence.save_many([]) == []
+    assert persistence.count_records() == 0
+    assert persistence.count_blobs() == 0
+
+
+def test_save_many_rollback_on_partial_failure(persistence: MemoryPersistence, monkeypatch: pytest.MonkeyPatch):
+    records = [_record("b-1", b"\x01"), _record("b-2", b"\x02"), _record("b-3", b"\x03")]
+    call_count = {"n": 0}
+
+    original = persistence._upsert_record
+
+    def _raise_on_second(conn, record, *, blob_hash, blob_path):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise RuntimeError("forced-batch-failure")
+        return original(conn, record, blob_hash=blob_hash, blob_path=blob_path)
+
+    monkeypatch.setattr(persistence, "_upsert_record", _raise_on_second)
+
+    with pytest.raises(RuntimeError):
+        persistence.save_many(records)
+
+    assert persistence.count_records() == 0
+    assert persistence.count_blobs() == 0
+    assert not list(persistence.blob_dir.glob("*.bin"))
+
+
 def test_self_eval_enforced_rejects_missing_fields(tmp_path: Path):
     persistence = MemoryPersistence(
         db_path=tmp_path / "enf.db",

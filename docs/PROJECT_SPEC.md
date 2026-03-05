@@ -87,12 +87,13 @@
 - Service: `MemoryPersistence`
 - API:
   - `save_memory_record(record)`
-  - `save_many(records)`
+  - `save_many(records)` (single-transaction batch)
   - `load_memory_record(entry_id)`
 - Guarantees:
   - schema validation before persistence
   - self-evaluation validation/scoring in save path (toggleable enforcement)
   - idempotent upsert by `entry_id`
+  - full rollback for batch failures (`save_many`)
   - dual persistence (blob numeric + sqlite metadata/text shadow)
   - logical rollback on transaction failure
   - indexes for `context_hash`, `importance_score`, `category`

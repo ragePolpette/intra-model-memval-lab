@@ -36,6 +36,12 @@ class BlobMaterialization:
     created_new: bool
 
 
+@dataclass
+class PreparedRecord:
+    record: MemoryRecord
+    blob: BlobMaterialization
+
+
 class MemoryPersistence:
     """Atomic dual persistence: blob files + SQLite index."""
 
@@ -232,10 +238,23 @@ class MemoryPersistence:
             ),
         )
 
-    def save_memory_record(self, payload: MemoryRecord | dict) -> MemoryRecord:
+    def _prepare_record(self, payload: MemoryRecord | dict) -> PreparedRecord:
         record = MemoryRecord.model_validate(payload)
         record = enrich_self_evaluation(record, enforce=self.self_eval_enforced)
         blob = self._materialize_blob(record)
+        return PreparedRecord(record=record, blob=blob)
+
+    @staticmethod
+    def _with_blob_metadata(record: MemoryRecord, blob: BlobMaterialization) -> MemoryRecord:
+        updated_numeric = record.raw_numeric.model_copy(
+            update={"blob_path": str(blob.blob_path), "blob_hash": blob.blob_hash}
+        )
+        return record.model_copy(update={"raw_numeric": updated_numeric})
+
+    def save_memory_record(self, payload: MemoryRecord | dict) -> MemoryRecord:
+        prepared = self._prepare_record(payload)
+        record = prepared.record
+        blob = prepared.blob
 
         try:
             with self._conn() as conn:
@@ -246,16 +265,39 @@ class MemoryPersistence:
                 blob.blob_path.unlink(missing_ok=True)
             raise
 
-        updated_numeric = record.raw_numeric.model_copy(
-            update={"blob_path": str(blob.blob_path), "blob_hash": blob.blob_hash}
-        )
-        return record.model_copy(update={"raw_numeric": updated_numeric})
+        return self._with_blob_metadata(record, blob)
 
     def save_many(self, payloads: Iterable[MemoryRecord | dict]) -> list[MemoryRecord]:
-        results: list[MemoryRecord] = []
-        for item in payloads:
-            results.append(self.save_memory_record(item))
-        return results
+        prepared_items: list[PreparedRecord] = [self._prepare_record(item) for item in payloads]
+        if not prepared_items:
+            return []
+
+        created_new_paths: dict[str, Path] = {}
+        unique_blobs: dict[str, BlobMaterialization] = {}
+        for prepared in prepared_items:
+            blob = prepared.blob
+            unique_blobs.setdefault(blob.blob_hash, blob)
+            if blob.created_new:
+                created_new_paths[blob.blob_hash] = blob.blob_path
+
+        try:
+            with self._conn() as conn:
+                for blob in unique_blobs.values():
+                    self._upsert_blob(conn, blob)
+                for prepared in prepared_items:
+                    self._upsert_record(
+                        conn,
+                        prepared.record,
+                        blob_hash=prepared.blob.blob_hash,
+                        blob_path=prepared.blob.blob_path,
+                    )
+        except Exception:
+            for path in created_new_paths.values():
+                if path.exists():
+                    path.unlink(missing_ok=True)
+            raise
+
+        return [self._with_blob_metadata(item.record, item.blob) for item in prepared_items]
 
     def load_memory_record(self, entry_id: str) -> MemoryRecord | None:
         with self._conn() as conn:
