@@ -28,6 +28,7 @@ Questo progetto e' separato da `llm-memory` runtime MCP:
 Core storage service:
 - `src/intra_model_memval/storage.py` (`MemoryPersistence`)
 - persistenza duale atomica: blob numerico + indice SQLite + text shadow
+- self-eval rule nel save path con toggle `self_eval_enforced`
 
 ## Quickstart
 
