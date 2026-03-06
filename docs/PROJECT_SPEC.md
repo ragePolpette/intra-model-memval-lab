@@ -3,33 +3,27 @@
 ## 1. Goal
 - Build a standalone hardened pipeline for **categorized intra-model memory**.
 - Produce training-ready datasets while mitigating self-reinforcing feedback loops.
-- Keep memory representation numeric-first to avoid unnecessary text conversion.
+- Support dual ingestion profiles without semantic drift:
+  - `internal` profile: numeric-native memory.
+  - `MCP` profile: text-native memory (no fake numeric conversion).
 
 ## 2. Scope
 - Input: curated records exported from `llm-memory` (or equivalent store).
 - Processing: validation, provenance scoring, category normalization, dedup policy, sampling.
 - Output: dual datasets:
-  - numeric dataset (primary, training-ready)
-  - text shadow dataset (secondary, audit/debug)
+  - numeric-oriented dataset (for internal profile)
+  - text-oriented dataset (for MCP profile and audit/debug)
 
 ## 3. Non-goals
 - No MCP runtime serving in this project.
 - No live memory write path for production traffic.
 - No direct deployment in Binah runtime stack.
 
-## 4. Core Data Model (numeric-first, proposed)
+## 4. Core Data Model (dual-profile, proposed)
+- Common fields:
 - `entry_id`: str
 - `category`: enum (`decision`, `fact`, `rule`, `assumption`, `unknown`, `invalidated`)
-- `raw_numeric`: object (required)
-  - `dtype`: str (`float32`, `float16`, `int8`, ...)
-  - `shape`: list[int]
-  - `encoding`: enum (`base64`, `npz_ref`, `arrow_ref`)
-  - `payload_b64`: optional str
-  - `blob_path`: optional str
-  - `blob_hash`: optional str
-- `text_view`: optional str (derived or human-friendly summary)
-- `modality_primary`: fixed `numeric`
-- `category`: enum (`decision`, `fact`, `rule`, `assumption`, `unknown`, `invalidated`)
+- `modality_primary`: enum (`numeric`, `text`)
 - `importance_score`: int `0..100`
 - `novelty_score`: float `0..1`
 - `is_external`: bool
@@ -42,12 +36,29 @@
 - `schema_version`: str
 - `model_fingerprint`: str
 
+- Internal payload (`modality_primary=numeric`):
+- `raw_numeric`: object (required)
+  - `dtype`: str (`float32`, `float16`, `int8`, ...)
+  - `shape`: list[int]
+  - `encoding`: enum (`base64`, `npz_ref`, `arrow_ref`)
+  - `payload_b64`: optional str
+  - `blob_path`: optional str
+  - `blob_hash`: optional str
+- `text_view`: optional str (shadow/audit)
+
+- MCP payload (`modality_primary=text`):
+- `text_view`: required str (primary payload)
+- `raw_numeric`: absent by design
+- no synthetic conversion to pseudo-numeric vectors at write time
+
 ## 5. Validation Rules (Phase 1)
-- Reject entries with missing `raw_numeric`, `category`, `importance_score`, `context_hash`.
+- Reject entries with missing common required fields.
+- Internal profile: reject entries with missing `raw_numeric`.
+- MCP profile: reject entries with missing `text_view`.
 - Clamp score/ranges to valid intervals.
 - Drop entries with `novelty_score < 0.2`.
 - Mark `provenance_level=declared_only` when evidence is absent.
-- Mark record as `train_ready=false` if numeric payload is invalid/absent.
+- Mark record as `train_ready=false` if required payload for selected profile is invalid/absent.
 
 ## 6. Feedback-Loop Mitigation Policy
 - Hard novelty filter: `novelty_score >= 0.2`.
@@ -65,9 +76,9 @@
 - High similarity + different `context_hash` -> transferable candidate (eligible for consolidation).
 
 ## 8. Export Format
-- Numeric primary export:
+- Internal-oriented export:
   - `record_id`, `raw_numeric`, `category`, `importance_score`, `meta`
-- Text shadow export:
+- MCP/text export:
   - `record_id`, `text_view`, `category`, `importance_score`, `meta`
 - Deterministic sort by `(importance_score desc, created_at asc, entry_id asc)` before write.
 
@@ -79,7 +90,7 @@
 
 ## 10. Phased Delivery
 - Phase 0: scaffold + policy CLI.
-- Phase 1: dataset builder from sqlite/jsonl with numeric-first validation.
+- Phase 1: dataset builder from sqlite/jsonl with profile-aware validation (`internal`/`MCP`).
 - Phase 2: provenance hardening + richer evidence attestation.
 - Phase 3: trainer adapters (GPT-2 small baseline, eval report).
 
