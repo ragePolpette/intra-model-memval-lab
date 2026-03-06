@@ -6,7 +6,9 @@ Scopo:
 - costruire una pipeline hardened per memorie selezionabili per training
 - mitigare feedback loop con regole di qualità/provenance
 - esportare dataset in formato adatto a modelli di test (es. GPT-2 small)
-- usare una rappresentazione **numeric-first** (`raw_numeric`) con vista testuale opzionale (`text_view`)
+- supportare due profili coerenti:
+  - `internal`: memoria numeric-native (`raw_numeric`) con text shadow opzionale
+  - `MCP`: memoria text-native (`text_view`) senza conversione numerica artificiale
 
 Questo progetto e' separato da `llm-memory` runtime MCP:
 - `llm-memory` = memoria operativa live
@@ -14,9 +16,12 @@ Questo progetto e' separato da `llm-memory` runtime MCP:
 
 ## Principio dati
 
-- `raw_numeric` e' la source of truth per training intra-model.
-- `text_view` e' una vista secondaria per audit/debug/human review.
-- Un record senza `raw_numeric` non e' train-ready.
+- Profilo `internal`:
+  - `raw_numeric` e' la source of truth per training intra-model.
+  - `text_view` e' una vista secondaria per audit/debug/human review.
+- Profilo `MCP`:
+  - `text_view` e' la source of truth del payload memoria.
+  - non viene forzata conversione a numerico pseudo-sintetico.
 
 ## Struttura
 
@@ -27,7 +32,7 @@ Questo progetto e' separato da `llm-memory` runtime MCP:
 
 Core storage service:
 - `src/intra_model_memval/storage.py` (`MemoryPersistence`)
-- persistenza duale atomica: blob numerico + indice SQLite + text shadow
+- persistenza duale atomica (profilo internal): blob numerico + indice SQLite + text shadow
 - self-eval rule nel save path con toggle `self_eval_enforced`
 
 ## Quickstart
@@ -35,4 +40,5 @@ Core storage service:
 ```bash
 cd intra-model-memval-lab
 python -m src.intra_model_memval.cli --help
+python scripts/build_dataset.py --help
 ```
