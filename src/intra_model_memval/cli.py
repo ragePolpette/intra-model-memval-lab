@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .adapters import GPT2SmallAdapter
 from .domain import (
-    EpisodeRecord,
     EvaluationSpec,
     ExperimentRun,
     ExperimentStatus,
@@ -16,10 +16,16 @@ from .domain import (
     TraceArtifact,
     UpdateCandidate,
 )
-from .evaluation import EvaluationHarness
+from .evaluation import (
+    EvaluationHarness,
+    default_gpt2_dataset_path,
+    default_gpt2_prompt_template_path,
+    load_synthetic_dataset,
+)
 from .ingestion import EpisodeIngestionService
 from .persistence import ExperimentStore
 from .selection import EpisodeSelectionPolicy, select_episodes
+from .tracing import TraceRunner
 from .utils.ids import new_id, utc_now_iso
 
 
@@ -35,6 +41,21 @@ def _store_from_args(args: argparse.Namespace) -> ExperimentStore:
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+
+
+def _load_text_file(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _build_gpt2_adapter(args: argparse.Namespace) -> GPT2SmallAdapter:
+    return GPT2SmallAdapter(
+        model_name=args.model_name,
+        adapter_id=args.adapter_id,
+        device=args.device,
+        seed=args.seed,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +99,24 @@ def build_parser() -> argparse.ArgumentParser:
     register_trace.add_argument("--status", default="placeholder")
     register_trace.add_argument("--notes")
     register_trace.add_argument("--artifact-file", action="append", default=[])
+
+    gpt2_trace = sub.add_parser("run-gpt2-trace", help="Run a real GPT-2 small trace")
+    gpt2_trace.add_argument("--episode-id")
+    gpt2_trace.add_argument("--content-text")
+    gpt2_trace.add_argument("--metadata-json")
+    gpt2_trace.add_argument("--topic-tag", action="append", default=[])
+    gpt2_trace.add_argument("--trigger-tag", action="append", default=[])
+    gpt2_trace.add_argument("--source-type", default="synthetic")
+    gpt2_trace.add_argument("--source-label", default="gpt2-small-trace")
+    gpt2_trace.add_argument("--prompt-template")
+    gpt2_trace.add_argument("--prompt-template-file", type=Path)
+    gpt2_trace.add_argument("--trace-type", default="gpt2-forward-pass")
+    gpt2_trace.add_argument("--model-name", default="gpt2")
+    gpt2_trace.add_argument("--adapter-id", default="gpt2-small")
+    gpt2_trace.add_argument("--device", default="cpu")
+    gpt2_trace.add_argument("--seed", type=int, default=0)
+    gpt2_trace.add_argument("--include-attentions", action="store_true")
+    gpt2_trace.add_argument("--notes")
 
     list_traces = sub.add_parser("list-traces", help="List registered trace artifacts")
     list_traces.add_argument("--episode-id")
@@ -123,6 +162,16 @@ def build_parser() -> argparse.ArgumentParser:
     create_eval_run.add_argument("--subject-type", required=True)
     create_eval_run.add_argument("--subject-id", required=True)
     create_eval_run.add_argument("--run-id")
+
+    gpt2_eval = sub.add_parser("run-gpt2-baseline-eval", help="Run baseline evaluation for GPT-2 small")
+    gpt2_eval.add_argument("--dataset-path", type=Path, default=default_gpt2_dataset_path())
+    gpt2_eval.add_argument("--prompt-template-file", type=Path, default=default_gpt2_prompt_template_path())
+    gpt2_eval.add_argument("--evaluation-spec-id")
+    gpt2_eval.add_argument("--spec-name", default="gpt2-small-capitals-baseline")
+    gpt2_eval.add_argument("--model-name", default="gpt2")
+    gpt2_eval.add_argument("--adapter-id", default="gpt2-small")
+    gpt2_eval.add_argument("--device", default="cpu")
+    gpt2_eval.add_argument("--seed", type=int, default=0)
 
     list_eval_runs = sub.add_parser("list-evaluation-runs", help="List evaluation runs")
     list_eval_runs.add_argument("--evaluation-spec-id")
@@ -226,6 +275,47 @@ def main() -> int:
         _print_json(saved.model_dump(mode="json"))
         return 0
 
+    if args.command == "run-gpt2-trace":
+        if not args.episode_id and not args.content_text:
+            raise SystemExit("run-gpt2-trace requires --episode-id or --content-text")
+        prompt_template = args.prompt_template or _load_text_file(args.prompt_template_file) or "{content_text}"
+        if args.episode_id:
+            episode = store.load_episode(args.episode_id)
+            if episode is None:
+                raise SystemExit(f"Episode not found: {args.episode_id}")
+        else:
+            service = EpisodeIngestionService()
+            episode = service.ingest_episode(
+                {
+                    "content_text": args.content_text,
+                    "metadata": _load_json(args.metadata_json, default={}),
+                    "topic_tags": args.topic_tag,
+                    "trigger_tags": args.trigger_tag,
+                    "provenance": {
+                        "source_type": args.source_type,
+                        "source_label": args.source_label,
+                    },
+                }
+            )
+
+        adapter = _build_gpt2_adapter(args)
+        runner = TraceRunner(store=store, adapter=adapter)
+        result = runner.trace_episode(
+            episode,
+            prompt_template=prompt_template,
+            trace_type=args.trace_type,
+            include_attentions=args.include_attentions,
+            notes=args.notes,
+        )
+        _print_json(
+            {
+                "episode": result.episode.model_dump(mode="json"),
+                "run": result.experiment_run.model_dump(mode="json"),
+                "trace": result.trace_artifact.model_dump(mode="json"),
+            }
+        )
+        return 0
+
     if args.command == "list-traces":
         traces = store.list_trace_artifacts(episode_id=args.episode_id, limit=args.limit, offset=args.offset)
         _print_json([item.model_dump(mode="json") for item in traces])
@@ -309,6 +399,30 @@ def main() -> int:
         store.register_run(run)
         saved = store.save_evaluation_run(evaluation_run)
         _print_json(saved.model_dump(mode="json"))
+        return 0
+
+    if args.command == "run-gpt2-baseline-eval":
+        dataset = load_synthetic_dataset(
+            dataset_path=args.dataset_path,
+            prompt_template_path=args.prompt_template_file,
+        )
+        spec = dataset.to_evaluation_spec(
+            evaluation_spec_id=args.evaluation_spec_id,
+            name=args.spec_name,
+        )
+        store.save_evaluation_spec(spec)
+        adapter = _build_gpt2_adapter(args)
+        harness = EvaluationHarness()
+        result = harness.run_baseline(spec, adapter=adapter, subject_id=args.model_name)
+        store.register_run(result.experiment_run)
+        saved = store.save_evaluation_run(result.evaluation_run)
+        _print_json(
+            {
+                "evaluation_spec": spec.model_dump(mode="json"),
+                "run": result.experiment_run.model_dump(mode="json"),
+                "evaluation_run": saved.model_dump(mode="json"),
+            }
+        )
         return 0
 
     if args.command == "list-evaluation-runs":
