@@ -1,0 +1,16 @@
+## Environment and local runtime
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+build/
+dist/
+.claude/
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
