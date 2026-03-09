@@ -1,17 +1,44 @@
-"""intra-model-memval-lab package."""
+"""Experiment infrastructure for episode, trace, update and evaluation workflows."""
 
-from .schemas import MemoryRecord, NumericPayload
-from .selection import SelectionPolicy, SelectionResult, SelectionStats, select_training_records
-from .self_eval import SelfEvalValidationError
-from .storage import MemoryPersistence
+from .domain import (
+    ArtifactRef,
+    EpisodeRecord,
+    EvaluationCase,
+    EvaluationRun,
+    EvaluationSpec,
+    ExperimentRun,
+    ExperimentStatus,
+    RunKind,
+    SourceProvenance,
+    TraceArtifact,
+    TraceStatus,
+    UpdateCandidate,
+    UpdateCandidateStatus,
+)
+from .evaluation import EvaluationHarness
+from .ingestion import EpisodeIngestionService
+from .persistence import ExperimentStore, StoredArtifact
+from .selection import EpisodeSelectionPolicy, EpisodeSelectionResult, select_episodes
 
 __all__ = [
-    "MemoryRecord",
-    "NumericPayload",
-    "MemoryPersistence",
-    "SelfEvalValidationError",
-    "SelectionPolicy",
-    "SelectionResult",
-    "SelectionStats",
-    "select_training_records",
+    "ArtifactRef",
+    "EpisodeIngestionService",
+    "EpisodeRecord",
+    "EpisodeSelectionPolicy",
+    "EpisodeSelectionResult",
+    "EvaluationCase",
+    "EvaluationHarness",
+    "EvaluationRun",
+    "EvaluationSpec",
+    "ExperimentRun",
+    "ExperimentStatus",
+    "ExperimentStore",
+    "RunKind",
+    "SourceProvenance",
+    "StoredArtifact",
+    "TraceArtifact",
+    "TraceStatus",
+    "UpdateCandidate",
+    "UpdateCandidateStatus",
+    "select_episodes",
 ]

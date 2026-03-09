@@ -1,6 +1,6 @@
-"""Public schema exports for the experiment-oriented domain model."""
+"""Domain entities for experiment infrastructure."""
 
-from .domain import (
+from .models import (
     ArtifactRef,
     EpisodeRecord,
     EvaluationCase,
