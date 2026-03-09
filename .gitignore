@@ -8,6 +8,7 @@ env/
 build/
 dist/
 .claude/
+claude.md
 .idea/
 .vscode/
 __pycache__/
