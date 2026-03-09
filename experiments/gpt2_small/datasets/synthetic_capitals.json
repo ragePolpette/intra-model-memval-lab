@@ -1,0 +1,75 @@
+{
+  "dataset_id": "gpt2-small-capitals-v1",
+  "description": "Small synthetic capitals dataset for baseline next-token evaluation before any model update.",
+  "metadata": {
+    "task": "country_to_capital",
+    "seed": 17,
+    "format": "first-token baseline scoring"
+  },
+  "target": [
+    {
+      "case_id": "target-france",
+      "country": "France",
+      "capital": "Paris",
+      "expected_response": "Paris"
+    },
+    {
+      "case_id": "target-italy",
+      "country": "Italy",
+      "capital": "Rome",
+      "expected_response": "Rome"
+    },
+    {
+      "case_id": "target-spain",
+      "country": "Spain",
+      "capital": "Madrid",
+      "expected_response": "Madrid"
+    },
+    {
+      "case_id": "target-portugal",
+      "country": "Portugal",
+      "capital": "Lisbon",
+      "expected_response": "Lisbon"
+    }
+  ],
+  "related": [
+    {
+      "case_id": "related-germany",
+      "country": "Germany",
+      "capital": "Berlin",
+      "expected_response": "Berlin"
+    },
+    {
+      "case_id": "related-austria",
+      "country": "Austria",
+      "capital": "Vienna",
+      "expected_response": "Vienna"
+    },
+    {
+      "case_id": "related-belgium",
+      "country": "Belgium",
+      "capital": "Brussels",
+      "expected_response": "Brussels"
+    }
+  ],
+  "unrelated": [
+    {
+      "case_id": "unrelated-japan",
+      "country": "Japan",
+      "capital": "Tokyo",
+      "expected_response": "Tokyo"
+    },
+    {
+      "case_id": "unrelated-canada",
+      "country": "Canada",
+      "capital": "Ottawa",
+      "expected_response": "Ottawa"
+    },
+    {
+      "case_id": "unrelated-australia",
+      "country": "Australia",
+      "capital": "Canberra",
+      "expected_response": "Canberra"
+    }
+  ]
+}

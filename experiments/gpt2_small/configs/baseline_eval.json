@@ -1,0 +1,9 @@
+{
+  "adapter_id": "gpt2-small",
+  "model_name": "gpt2",
+  "device": "cpu",
+  "seed": 0,
+  "dataset_path": "experiments/gpt2_small/datasets/synthetic_capitals.json",
+  "prompt_template_path": "experiments/gpt2_small/prompts/capital_prompt.txt",
+  "mode": "baseline-next-token"
+}

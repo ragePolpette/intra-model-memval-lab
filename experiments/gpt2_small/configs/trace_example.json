@@ -1,0 +1,8 @@
+{
+  "adapter_id": "gpt2-small",
+  "model_name": "gpt2",
+  "device": "cpu",
+  "seed": 0,
+  "trace_type": "gpt2-forward-pass",
+  "prompt_template": "Question: {content_text}\nAnswer:"
+}
