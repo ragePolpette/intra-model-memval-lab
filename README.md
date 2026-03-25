@@ -1,8 +1,5 @@
 # intra-model-memval-lab
 
-Questo progetto e' destinato a vivere come **repository standalone** dentro il workspace DEV `Yetzirah`.
-Non ha runtime/deploy in `Binah`.
-
 Repository per infrastruttura sperimentale su:
 
 - `episode` acquisition
