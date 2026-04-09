@@ -1,5 +1,9 @@
 # intra-model-memval-lab
 
+> [!IMPORTANT]
+> Work in progress.
+> This repository is an active experimental lab for memory-evaluation infrastructure. It should be read as an evolving foundation, not as a finished runtime or research result.
+
 Experimental infrastructure for auditable memory-evaluation workflows.
 
 This repository explores a local, reproducible foundation for capturing episodes, registering trace artifacts, tracking localized update candidates, and running structured evaluations. It is not a live memory runtime and it is not a model training system. The current focus is infrastructure for experiments that can be inspected, replayed, and compared over time.
