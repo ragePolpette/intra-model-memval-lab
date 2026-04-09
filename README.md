@@ -1,78 +1,87 @@
 # intra-model-memval-lab
 
-Repository per infrastruttura sperimentale su:
+Experimental infrastructure for auditable memory-evaluation workflows.
 
-- `episode` acquisition
-- `trace artifact` registration
-- `update candidate` tracking
-- `evaluation spec/run` management
+This repository explores a local, reproducible foundation for capturing episodes, registering trace artifacts, tracking localized update candidates, and running structured evaluations. It is not a live memory runtime and it is not a model training system. The current focus is infrastructure for experiments that can be inspected, replayed, and compared over time.
 
-Non e' ancora un sistema di memoria intra-modello.
-Non fa activation tracing reale.
-Non fa pathway detection.
-Non fa micro-update dei pesi.
-Non esegue valutazioni su un modello reale.
+## What It Covers
 
-## Cosa e' il repo adesso
+- episode acquisition with contextual metadata
+- trace artifact registration for future tracing workflows
+- localized update candidate tracking
+- evaluation spec and evaluation run management
+- SQLite-backed persistence for experiments and manifests
+- optional episode curation and selection utilities
 
-Questo progetto e' stato riallineato da un prototype storage-centered
-a una base di infrastruttura per esperimenti auditabili e riproducibili.
+## Current Status
 
-Blocchi principali:
+This project is an active experimental lab, not a finished product.
 
-- `EpisodeRecord`: episodio/fatto osservato con contesto e provenienza.
-- `TraceArtifact`: contratto e registry per artefatti di tracing futuri.
-- `UpdateCandidate`: proposta di update localizzato, non ancora eseguito.
-- `EvaluationSpec` / `EvaluationRun`: contratti per valutazione target/related/unrelated.
-- `ExperimentStore`: persistenza SQLite + artifact registry + run manifests.
-- `EpisodeSelectionPolicy`: utility opzionale di curation/sampling.
+What it is today:
 
-## Legacy removed
+- a coherent domain model for episode, trace, update, and evaluation workflows
+- a minimal CLI for storing and inspecting experimental records
+- a reproducible local persistence layer for small-scale experimentation
 
-Il repository non contiene piu' bridge interni verso il vecchio paradigma numeric-memory.
+What it is not yet:
 
-Sono stati rimossi dal core:
+- a live intra-model memory system
+- activation tracing over a real model
+- pathway detection
+- weight-update execution
+- a trainer or fine-tuning pipeline
+- a model-specific adapter for GPT-2 or other concrete runtimes
 
-- `legacy.py`
-- shim di compatibilita' per `MemoryPersistence`
-- shim di compatibilita' per `self_eval`
-- export di `MemoryRecord` / `NumericPayload`
+## Why This Exists
 
-## Cosa non e' ancora
+Most discussions around memory systems mix together storage, tracing, adaptation, and evaluation. This repository deliberately separates those concerns and starts from the infrastructure layer: contracts, persistence, and experiment bookkeeping.
 
-- non e' un runtime di memoria live
-- non e' un trainer
-- non e' un weight update engine
-- non e' un adapter per GPT-2 small o altri modelli specifici
+The goal is to make future work on memory evaluation more inspectable and less hand-wavy. Before building a full runtime, it is useful to have a clean way to capture evidence, define candidate updates, and evaluate what changed.
 
-## Struttura
+## Architecture
 
-- `src/intra_model_memval/domain/`: contratti dati principali
-- `src/intra_model_memval/persistence/`: store transazionale e artifact registry
-- `src/intra_model_memval/ingestion/`: normalizzazione e acquisizione episodi
-- `src/intra_model_memval/evaluation/`: harness minimale per evaluation run
-- `src/intra_model_memval/adapters/`: punto di estensione futuro per model adapters
-- `src/intra_model_memval/selection.py`: sampling/curation opzionale
-- `docs/ARCHITECTURE.md`: architettura attuale
-- `docs/MIGRATION_NOTES.md`: cosa e' stato deprecato e perche'
-- `LEGACY_REMOVAL_REPORT.md`: report della rimozione definitiva del legacy
-- `REALIGNMENT_REPORT.md`: report del refactor
+Main areas:
+
+```text
+src/intra_model_memval/
+  domain/        # core records and contracts
+  persistence/   # transactional store and artifact registry
+  ingestion/     # episode normalization and acquisition
+  evaluation/    # evaluation spec/run primitives
+  adapters/      # future model adapter extension point
+  selection.py   # optional curation and sampling utilities
+scripts/
+  export_experiment_snapshot.py
+docs/
+  ARCHITECTURE.md
+  MIGRATION_NOTES.md
+  REALIGNMENT_REPORT.md
+```
+
+Key records:
+
+- `EpisodeRecord`
+- `TraceArtifact`
+- `UpdateCandidate`
+- `EvaluationSpec`
+- `EvaluationRun`
+- `ExperimentStore`
 
 ## CLI
 
-Se il package e' installato:
+If installed as a package:
 
 ```bash
 intra-model-exp --help
 ```
 
-Da repository:
+From the repository:
 
 ```bash
 python scripts/export_experiment_snapshot.py --help
 ```
 
-Comandi principali:
+Main commands:
 
 - `save-episode`
 - `list-episodes`
@@ -87,14 +96,17 @@ Comandi principali:
 - `export-episodes`
 - `list-runs`
 
-## Note sui documenti storici
+## Documentation
 
-I documenti storici in `docs/PROJECT_SPEC.md`, `docs/TARGET_OBJECTIVE.md`,
-`docs/DEV_STATUS_ROADMAP.md`, `docs/correzioni_p0.md` e
-`docs/MISSING_POINTS_SCHEMA_AND_PLAN.md` sono stati declassati a note di contesto.
-Per lo stato reale del repository usare:
+Use these as the current source of truth:
 
 - `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/MIGRATION_NOTES.md`
 - `REALIGNMENT_REPORT.md`
+
+Historical planning notes remain in the repository for context, but they should not be treated as the current implementation contract.
+
+## Development Process
+
+Built with AI-assisted workflows, while architecture, tradeoffs, integration, review, and validation were directed by the author.
