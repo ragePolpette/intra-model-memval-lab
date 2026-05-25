@@ -59,7 +59,6 @@ scripts/
 docs/
   ARCHITECTURE.md
   MIGRATION_NOTES.md
-  REALIGNMENT_REPORT.md
 ```
 
 Key records:
@@ -107,7 +106,6 @@ Use these as the current source of truth:
 - `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/MIGRATION_NOTES.md`
-- `REALIGNMENT_REPORT.md`
 
 Historical planning notes remain in the repository for context, but they should not be treated as the current implementation contract.
 

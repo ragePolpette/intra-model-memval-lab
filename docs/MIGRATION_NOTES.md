@@ -62,5 +62,3 @@ Per lo stato reale del repository usare:
 
 - `README.md`
 - `docs/ARCHITECTURE.md`
-- `REALIGNMENT_REPORT.md`
-- `LEGACY_REMOVAL_REPORT.md`

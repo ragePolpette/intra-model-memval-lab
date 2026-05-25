@@ -15,3 +15,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/
+
+# Local agent instruction files
+AGENTS.md
