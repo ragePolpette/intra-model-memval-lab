@@ -196,6 +196,7 @@ class RunKind(str, Enum):
     INGESTION = "ingestion"
     TRACE = "trace"
     UPDATE_CANDIDATE = "update_candidate"
+    CONSOLIDATION = "consolidation"
     EVALUATION = "evaluation"
     EXPORT = "export"
 
