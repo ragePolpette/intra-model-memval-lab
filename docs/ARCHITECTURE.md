@@ -6,12 +6,18 @@ Il repository e' ora una base di infrastruttura per esperimenti auditabili su:
 
 `episode -> trace artifact -> update candidate -> evaluation`
 
+e per il ciclo di consolidamento (vedi `CONSOLIDATION_DESIGN.md`):
+
+`episodi -> lesson -> dataset sintetico -> consolidation candidate -> evaluation -> promote/rollback`
+
 Non implementa ancora:
 
 - activation tracing reale
 - pathway/circuit detection
 - localized weight updates
 - serious model-based evaluation
+- lesson extraction / variation generation / verifier LLM-backed (solo contratti `Protocol`)
+- training LoRA reale (solo contratto adapter + manifest auditabili)
 
 ## 2. Core entities
 
@@ -73,6 +79,53 @@ Campi chiave:
 - `result_summary`
 - `lineage`
 
+### Lesson
+
+Rappresenta una lezione estratta da un cluster di episodi, candidata al consolidamento.
+`boundary` e' obbligatorio: una lezione senza confini espliciti produce variazioni
+sintetiche che overgeneralizzano.
+
+Campi chiave:
+
+- `lesson_id`
+- `statement`
+- `scope_tags`
+- `boundary`
+- `source_cluster_ids`
+- `source_episode_ids`
+- `status` (CANDIDATE / CONSOLIDATED / SUPERSEDED / CONFLICTED)
+- `consolidation_run_id`
+
+### SyntheticExample
+
+Una riga del dataset sintetico verificato (JSONL registrato come artifact).
+
+Campi chiave:
+
+- `lesson_id`
+- `kind` (positive / negative / anchor)
+- `input`
+- `target`
+- `verifier_score`
+
+### ConsolidationCandidate
+
+Rappresenta una proposta di training LoRA con replay per un insieme di lezioni.
+Non e' un training eseguito: registra dataset, configurazioni e verdetto.
+
+Campi chiave:
+
+- `consolidation_candidate_id`
+- `lesson_ids`
+- `dataset_ref`
+- `replay_config`
+- `train_config`
+- `base_model_ref`
+- `status` (PREPARED / TRAINED / PROMOTED / ROLLED_BACK)
+- `evaluation_run_ids`
+- `run_id`
+- `result_summary`
+
 ### EvaluationSpec
 
 Definisce cosa dovrebbe essere valutato.
@@ -119,6 +172,9 @@ Viene usato per trace, update candidate, evaluation ed export.
   `EpisodeIngestionService`, inclusa la normalizzazione del `context_hash`.
 - `src/intra_model_memval/evaluation/`
   `EvaluationHarness` per run placeholder ma auditabili.
+- `src/intra_model_memval/consolidation/`
+  Ciclo di consolidamento: gating verifier, replay buffer, verdetto promote/rollback,
+  `ConsolidationPlanner` e contratti `Protocol` per i passi LLM/training-dependent.
 - `src/intra_model_memval/adapters/`
   Contratti future-facing per model adapters.
 - `src/intra_model_memval/selection.py`
@@ -143,6 +199,8 @@ Tabelle principali:
 - `episodes`
 - `trace_artifacts`
 - `update_candidates`
+- `lessons`
+- `consolidation_candidates`
 - `evaluation_specs`
 - `evaluation_runs`
 - `experiment_runs`
@@ -172,3 +230,7 @@ Le estensioni previste, ma non ancora implementate, sono:
 - pathway/localization analyzers che popolano `candidate_localization`
 - update planners/applicators che consumano `UpdateCandidate`
 - evaluation executors reali che popolano `EvaluationRun.metrics` e `observations`
+- implementazioni LLM-backed di `LessonExtractor`, `VariationGenerator`,
+  `VariationVerifier`, `ConflictChecker` (v2)
+- `LoraTrainerAdapter` reale su Gemma 3 270M IT che consuma `ConsolidationCandidate`
+- SAE drift check (v2) registrato come `TraceArtifact`

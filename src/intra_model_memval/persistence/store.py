@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..domain.consolidation import ConsolidationCandidate, Lesson
 from ..domain.models import (
     ArtifactRef,
     EpisodeRecord,
@@ -177,7 +178,41 @@ class ExperimentStore:
                     FOREIGN KEY(run_id) REFERENCES experiment_runs(run_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS lessons (
+                    lesson_id TEXT PRIMARY KEY,
+                    statement TEXT NOT NULL,
+                    scope_tags_json TEXT NOT NULL,
+                    boundary TEXT NOT NULL,
+                    source_cluster_ids_json TEXT NOT NULL,
+                    source_episode_ids_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    consolidation_run_id TEXT,
+                    metadata_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    schema_version TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS consolidation_candidates (
+                    consolidation_candidate_id TEXT PRIMARY KEY,
+                    lesson_ids_json TEXT NOT NULL,
+                    dataset_ref_json TEXT NOT NULL,
+                    replay_config_json TEXT NOT NULL,
+                    train_config_json TEXT NOT NULL,
+                    base_model_ref TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    evaluation_run_ids_json TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    result_summary_json TEXT NOT NULL,
+                    created_at_utc TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    FOREIGN KEY(run_id) REFERENCES experiment_runs(run_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_episode_context_hash ON episodes(context_hash);
+                CREATE INDEX IF NOT EXISTS idx_lesson_status ON lessons(status);
+                CREATE INDEX IF NOT EXISTS idx_consolidation_run ON consolidation_candidates(run_id);
                 CREATE INDEX IF NOT EXISTS idx_episode_created ON episodes(created_at_utc);
                 CREATE INDEX IF NOT EXISTS idx_trace_episode ON trace_artifacts(episode_id);
                 CREATE INDEX IF NOT EXISTS idx_trace_run ON trace_artifacts(run_id);
@@ -592,6 +627,171 @@ class ExperimentStore:
             evaluation_spec_id=row["evaluation_spec_id"],
             result_summary=json.loads(row["result_summary_json"]),
             lineage=json.loads(row["lineage_json"]),
+            created_at_utc=row["created_at_utc"],
+            updated_at_utc=row["updated_at_utc"],
+            schema_version=row["schema_version"],
+        )
+
+    def save_lesson(self, lesson: Lesson) -> Lesson:
+        payload = Lesson.model_validate(lesson)
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO lessons (
+                    lesson_id, statement, scope_tags_json, boundary, source_cluster_ids_json,
+                    source_episode_ids_json, status, consolidation_run_id, metadata_json,
+                    created_at_utc, updated_at_utc, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lesson_id) DO UPDATE SET
+                    statement = excluded.statement,
+                    scope_tags_json = excluded.scope_tags_json,
+                    boundary = excluded.boundary,
+                    source_cluster_ids_json = excluded.source_cluster_ids_json,
+                    source_episode_ids_json = excluded.source_episode_ids_json,
+                    status = excluded.status,
+                    consolidation_run_id = excluded.consolidation_run_id,
+                    metadata_json = excluded.metadata_json,
+                    updated_at_utc = excluded.updated_at_utc,
+                    schema_version = excluded.schema_version
+                """,
+                (
+                    payload.lesson_id,
+                    payload.statement,
+                    _json_dumps(payload.scope_tags),
+                    payload.boundary,
+                    _json_dumps(payload.source_cluster_ids),
+                    _json_dumps(payload.source_episode_ids),
+                    payload.status.value,
+                    payload.consolidation_run_id,
+                    _json_dumps(payload.metadata),
+                    payload.created_at_utc,
+                    payload.updated_at_utc,
+                    payload.schema_version,
+                ),
+            )
+        return payload
+
+    def load_lesson(self, lesson_id: str) -> Lesson | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM lessons WHERE lesson_id = ?", (lesson_id,)).fetchone()
+        return None if row is None else self._lesson_from_row(row)
+
+    def list_lessons(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Lesson]:
+        sql = ["SELECT * FROM lessons WHERE 1=1"]
+        params: list[Any] = []
+        if status:
+            sql.append("AND status = ?")
+            params.append(str(status).strip().lower())
+        sql.append("ORDER BY created_at_utc DESC, lesson_id ASC LIMIT ? OFFSET ?")
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+        with self._conn() as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+        return [self._lesson_from_row(row) for row in rows]
+
+    @staticmethod
+    def _lesson_from_row(row: sqlite3.Row) -> Lesson:
+        return Lesson(
+            lesson_id=row["lesson_id"],
+            statement=row["statement"],
+            scope_tags=json.loads(row["scope_tags_json"]),
+            boundary=row["boundary"],
+            source_cluster_ids=json.loads(row["source_cluster_ids_json"]),
+            source_episode_ids=json.loads(row["source_episode_ids_json"]),
+            status=row["status"],
+            consolidation_run_id=row["consolidation_run_id"],
+            metadata=json.loads(row["metadata_json"]),
+            created_at_utc=row["created_at_utc"],
+            updated_at_utc=row["updated_at_utc"],
+            schema_version=row["schema_version"],
+        )
+
+    def save_consolidation_candidate(self, candidate: ConsolidationCandidate) -> ConsolidationCandidate:
+        payload = ConsolidationCandidate.model_validate(candidate)
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO consolidation_candidates (
+                    consolidation_candidate_id, lesson_ids_json, dataset_ref_json,
+                    replay_config_json, train_config_json, base_model_ref, status,
+                    evaluation_run_ids_json, run_id, result_summary_json,
+                    created_at_utc, updated_at_utc, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(consolidation_candidate_id) DO UPDATE SET
+                    lesson_ids_json = excluded.lesson_ids_json,
+                    dataset_ref_json = excluded.dataset_ref_json,
+                    replay_config_json = excluded.replay_config_json,
+                    train_config_json = excluded.train_config_json,
+                    base_model_ref = excluded.base_model_ref,
+                    status = excluded.status,
+                    evaluation_run_ids_json = excluded.evaluation_run_ids_json,
+                    run_id = excluded.run_id,
+                    result_summary_json = excluded.result_summary_json,
+                    updated_at_utc = excluded.updated_at_utc,
+                    schema_version = excluded.schema_version
+                """,
+                (
+                    payload.consolidation_candidate_id,
+                    _json_dumps(payload.lesson_ids),
+                    _json_dumps(payload.dataset_ref.model_dump(mode="json")),
+                    _json_dumps(payload.replay_config),
+                    _json_dumps(payload.train_config),
+                    payload.base_model_ref,
+                    payload.status.value,
+                    _json_dumps(payload.evaluation_run_ids),
+                    payload.run_id,
+                    _json_dumps(payload.result_summary),
+                    payload.created_at_utc,
+                    payload.updated_at_utc,
+                    payload.schema_version,
+                ),
+            )
+        return payload
+
+    def load_consolidation_candidate(self, consolidation_candidate_id: str) -> ConsolidationCandidate | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM consolidation_candidates WHERE consolidation_candidate_id = ?",
+                (consolidation_candidate_id,),
+            ).fetchone()
+        return None if row is None else self._consolidation_candidate_from_row(row)
+
+    def list_consolidation_candidates(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[ConsolidationCandidate]:
+        sql = ["SELECT * FROM consolidation_candidates WHERE 1=1"]
+        params: list[Any] = []
+        if status:
+            sql.append("AND status = ?")
+            params.append(str(status).strip().lower())
+        sql.append("ORDER BY created_at_utc DESC, consolidation_candidate_id ASC LIMIT ? OFFSET ?")
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+        with self._conn() as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+        return [self._consolidation_candidate_from_row(row) for row in rows]
+
+    @staticmethod
+    def _consolidation_candidate_from_row(row: sqlite3.Row) -> ConsolidationCandidate:
+        return ConsolidationCandidate(
+            consolidation_candidate_id=row["consolidation_candidate_id"],
+            lesson_ids=json.loads(row["lesson_ids_json"]),
+            dataset_ref=json.loads(row["dataset_ref_json"]),
+            replay_config=json.loads(row["replay_config_json"]),
+            train_config=json.loads(row["train_config_json"]),
+            base_model_ref=row["base_model_ref"],
+            status=row["status"],
+            evaluation_run_ids=json.loads(row["evaluation_run_ids_json"]),
+            run_id=row["run_id"],
+            result_summary=json.loads(row["result_summary_json"]),
             created_at_utc=row["created_at_utc"],
             updated_at_utc=row["updated_at_utc"],
             schema_version=row["schema_version"],
