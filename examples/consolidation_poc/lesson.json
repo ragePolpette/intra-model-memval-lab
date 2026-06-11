@@ -1,0 +1,8 @@
+{
+  "lesson_id": "lesson-poc-billing-period",
+  "statement": "Before quoting a renewal or subscription total, always confirm the customer's billing period (monthly or annual).",
+  "scope_tags": ["billing", "support"],
+  "boundary": "Does not apply to one-off purchases without a billing period, or when the customer has already stated the billing period in the same conversation.",
+  "source_cluster_ids": ["cluster-poc-1"],
+  "source_episode_ids": []
+}

@@ -13,6 +13,12 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+train = [
+    "torch>=2.1",
+    "transformers>=4.50",
+    "peft>=0.10",
+    "accelerate>=0.30",
+]
 
 [project.scripts]
 intra-model-exp = "intra_model_memval.cli:main"

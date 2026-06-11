@@ -148,8 +148,8 @@ Mappatura contratto → codice (`src/intra_model_memval/`):
 | 4b Verifier gate | `consolidation.dataset.apply_verifier_gate` + `check_dataset_composition` | implementato (logica pura) |
 | 4c Dataset JSONL | `consolidation.dataset.register_dataset` (artifact registry) | implementato |
 | 5 Replay buffer | `consolidation.replay.build_replay_buffer` | implementato (mixing deterministico; sourcing ancore a carico del chiamante) |
-| 6 Train | `consolidation.interfaces.LoraTrainerAdapter` + `ConsolidationPlanner.prepare_candidate` / `mark_trained` | contratto + manifest auditabile |
-| 7 Evaluate | riuso `EvaluationSpec` / `EvaluationRun` / `EvaluationHarness` | esistente |
+| 6 Train | `consolidation.training.GemmaLoraTrainer` (extra `[train]`) + `ConsolidationPlanner` | implementato (LoRA reale via peft/transformers) |
+| 7 Evaluate | `evaluation.EvaluationExecutor` + `HFTextGenerator`, su `EvaluationSpec` / `EvaluationRun` | implementato (containment match, pre/post) |
 | 8 Promote / Rollback | `consolidation.gating.decide_promotion` + `ConsolidationPlanner.apply_decision` | implementato |
 
 Adattamenti rispetto al draft v0.1:
@@ -164,5 +164,30 @@ Adattamenti rispetto al draft v0.1:
   con gli stessi default; le soglie di promozione in `consolidation.gating.GateThresholds`.
 - Persistenza: tabelle `lessons` e `consolidation_candidates` in `ExperimentStore`,
   con `RunKind.CONSOLIDATION` per i run manifest.
-- Coerentemente con il resto del repo, nessun comportamento fake: generazione,
-  verifica LLM e training LoRA sono dietro `Protocol`, non simulati.
+- Coerentemente con il resto del repo, nessun comportamento fake: generazione e
+  verifica LLM restano dietro `Protocol`; il training LoRA e la generazione HF
+  sono implementati ma vivono nell'extra opzionale `[train]` (import lazy, il
+  core resta senza dipendenze ML).
+
+## Esecuzione del POC (macchina GPU)
+
+```bash
+pip install -e ".[train]"
+python scripts/run_consolidation_poc.py \
+    --workdir runs/poc-001 \
+    --lesson-json examples/consolidation_poc/lesson.json \
+    --variations-jsonl examples/consolidation_poc/variations.jsonl \
+    --anchors-jsonl examples/consolidation_poc/anchors.jsonl \
+    --regression-jsonl examples/consolidation_poc/regression.jsonl
+```
+
+Lo script esegue un ciclo completo: gate del verifier, split held-out, replay
+buffer con ancore, eval pre, training LoRA, eval post, verdetto promote/rollback.
+Tutto (store SQLite, dataset, adapter, `verdict.json`) finisce sotto `--workdir`.
+I file in `examples/consolidation_poc/` sono fixture giocattolo per provare il
+loop; per il POC vero vanno sostituiti con le 30 variazioni generate+verificate
+da LLM. Scoring eval: containment match normalizzato — volutamente rozzo, da
+sostituire quando il loop gira.
+
+Semplificazioni note del trainer POC: loss LM full-sequence (niente masking
+completion-only), un adapter per run (niente stacking sul LoRA precedente).
