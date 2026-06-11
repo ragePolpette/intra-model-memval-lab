@@ -15,9 +15,12 @@ Non implementa ancora:
 - activation tracing reale
 - pathway/circuit detection
 - localized weight updates
-- serious model-based evaluation
 - lesson extraction / variation generation / verifier LLM-backed (solo contratti `Protocol`)
-- training LoRA reale (solo contratto adapter + manifest auditabili)
+
+Il training LoRA reale (`GemmaLoraTrainer`) e l'esecuzione eval reale
+(`EvaluationExecutor` + `HFTextGenerator`) esistono ma vivono nell'extra
+opzionale `[train]`: il core resta installabile senza dipendenze ML.
+Lo scoring eval e' containment match minimale, da raffinare.
 
 ## 2. Core entities
 
@@ -171,7 +174,8 @@ Viene usato per trace, update candidate, evaluation ed export.
 - `src/intra_model_memval/ingestion/`
   `EpisodeIngestionService`, inclusa la normalizzazione del `context_hash`.
 - `src/intra_model_memval/evaluation/`
-  `EvaluationHarness` per run placeholder ma auditabili.
+  `EvaluationHarness` per run placeholder ma auditabili;
+  `EvaluationExecutor` per run reali contro un `TextGenerator`.
 - `src/intra_model_memval/consolidation/`
   Ciclo di consolidamento: gating verifier, replay buffer, verdetto promote/rollback,
   `ConsolidationPlanner` e contratti `Protocol` per i passi LLM/training-dependent.
