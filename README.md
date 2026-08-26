@@ -27,6 +27,20 @@ Verified against the current source (not against older design notes):
 - No adapter stacking across consolidation cycles: the trainer produces one LoRA adapter per run.
 - No completion-only loss masking in the POC trainer (it trains on the full chat-formatted sequence).
 
+## Consolidation cycle
+
+The loop the consolidation pipeline implements, end to end:
+
+`episode -> lesson -> verified synthetic dataset -> replay buffer + LoRA training -> pre/post evaluation -> promote/rollback`
+
+1. **Episodes -> Lesson**: a cluster of `EpisodeRecord`s is turned into a `Lesson`. Extraction itself is an external, LLM-backed step (see "What doesn't exist yet").
+2. **Lesson -> verified dataset**: candidate variations are gated by `apply_verifier_gate` and `check_dataset_composition` (`consolidation/dataset.py`), then registered as a JSONL artifact via `register_dataset`.
+3. **Replay + LoRA**: `build_replay_buffer` (`consolidation/replay.py`) mixes new examples with anchors; `GemmaLoraTrainer` (`consolidation/training.py`, `[train]` extra) trains a LoRA adapter on Gemma 3 270M IT.
+4. **Eval pre/post**: `EvaluationExecutor` (`evaluation/executor.py`) runs the same `EvaluationSpec` against the base model and against base+adapter.
+5. **Promote/rollback**: `decide_promotion` (`consolidation/gating.py`) compares pre/post metrics against `GateThresholds`; `ConsolidationPlanner.apply_decision` (`consolidation/pipeline.py`) records the verdict and updates the candidate's and lessons' status.
+
+`scripts/run_consolidation_poc.py` runs steps 2-5 end to end (step 1 arrives as an input file — see "Consolidation POC" below). See `docs/CONSOLIDATION_DESIGN.md` for the full design contract and its per-step implementation-status mapping.
+
 ## Install and run
 
 Core install (domain, persistence, CLI, consolidation planning/gating logic — no ML dependencies):
