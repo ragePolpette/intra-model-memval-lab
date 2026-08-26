@@ -1,12 +1,12 @@
-# Modulo `consolidation` — Design Contract v0.1
+# `consolidation` module — Design Contract v0.1
 
-> Il pezzo mancante tra `selection.py` (esiste) e `evaluation/` (esiste):
-> lezione → dataset sintetico → LoRA con replay → verdetto.
+> The missing piece between `selection.py` (exists) and `evaluation/` (exists):
+> lesson → synthetic dataset → LoRA with replay → verdict.
 > Target runtime: Gemma 3 270M IT + Gemma Scope 2 + TransformerLens.
 
 ---
 
-## Pipeline del ciclo di sonno
+## Sleep-cycle pipeline
 
 ```
 [1 Harvest] → [2 Lesson extraction] → [3 Conflict check] →
@@ -15,51 +15,51 @@
 ```
 
 ### 1. Harvest
-Input: cluster `PROMOTED` dalla distillation di llm-memory (o `EpisodeRecord` del Lab)
-dall'ultimo ciclo, con `selection_score ≥ soglia`.
-Output: lista di `(cluster, episodi grezzi)` — gli episodi grezzi servono al punto 4,
-non buttarli dopo l'estrazione della lezione.
+Input: `PROMOTED` cluster from llm-memory's distillation (or Lab `EpisodeRecord`)
+from the last cycle, with `selection_score ≥ threshold`.
+Output: list of `(cluster, raw episodes)` — the raw episodes are needed at step 4,
+don't discard them after lesson extraction.
 
-### 2. Lesson extraction (secondo modello)
-Per ogni cluster produce un record `Lesson`:
+### 2. Lesson extraction (second model)
+For each cluster, produces a `Lesson` record:
 
 ```python
 class Lesson(BaseModel):
     lesson_id: str
-    statement: str                    # la lezione in forma dichiarativa
-    scope_tags: list[str]             # dominio di applicabilità
-    boundary: str                     # quando NON si applica (obbligatorio!)
+    statement: str                    # the lesson in declarative form
+    scope_tags: list[str]             # domain of applicability
+    boundary: str                     # when it does NOT apply (mandatory!)
     source_cluster_ids: list[str]
     source_episode_ids: list[str]
     status: LessonStatus              # CANDIDATE / CONSOLIDATED / SUPERSEDED / CONFLICTED
     consolidation_run_id: str | None
 ```
 
-`boundary` obbligatorio: una lezione senza confini espliciti genera variazioni
-che overgeneralizzano, ed è il difetto n.1 dei dati sintetici.
+`boundary` mandatory: a lesson without explicit boundaries generates variations
+that overgeneralize, which is failure mode #1 for synthetic data.
 
 ### 3. Conflict check
-Confronta `statement` con le Lesson già `CONSOLIDATED`:
-- similarità embedding sopra soglia → LLM judge decide: `merge` / `supersede` / `conflict`
-- `conflict` blocca il candidato e lo manda a revisione (umana, per ora)
+Compares `statement` against the already `CONSOLIDATED` Lessons:
+- embedding similarity above threshold → LLM judge decides: `merge` / `supersede` / `conflict`
+- `conflict` blocks the candidate and sends it for review (human, for now)
 
-*POC: rimandabile a v2 (con <10 lezioni i conflitti si vedono a occhio).*
+*POC: deferrable to v2 (with <10 lessons, conflicts are visible at a glance).*
 
-### 4. Variation generation + Verifier — il cuore
-Input: `Lesson` + episodi grezzi sorgente.
-Output: `SyntheticDataset` (JSONL, registrato come `ArtifactRef`).
+### 4. Variation generation + Verifier — the core
+Input: `Lesson` + raw source episodes.
+Output: `SyntheticDataset` (JSONL, registered as `ArtifactRef`).
 
-Generazione (secondo modello, N=20–50 per lezione):
-- ogni esempio = traiettoria di ragionamento che **applica** la lezione
-  in un contesto diverso (superficie variata, struttura profonda costante)
-- ancoraggio: almeno il 30% delle variazioni parte da un episodio reale parafrasato
-- **negative examples** (~20%): contesti dentro `boundary` dove la lezione
-  NON va applicata, con il comportamento corretto alternativo
+Generation (second model, N=20–50 per lesson):
+- each example = a reasoning trajectory that **applies** the lesson
+  in a different context (varied surface, constant deep structure)
+- anchoring: at least 30% of the variations start from a paraphrased real episode
+- **negative examples** (~20%): contexts within `boundary` where the lesson
+  should NOT be applied, with the correct alternative behavior
 
-Verifier (passo separato, prompt diverso, idealmente modello diverso):
-- per ogni esempio: "questa traiettoria applica la lezione o la recita?"
-- score 0–1; sotto soglia → scartato
-- se il reject rate > 50%, la lezione è mal formulata → torna al punto 2
+Verifier (separate step, different prompt, ideally a different model):
+- for each example: "does this trajectory apply the lesson or just recite it?"
+- score 0–1; below threshold → discarded
+- if the reject rate > 50%, the lesson is poorly formulated → back to step 2
 
 ```jsonl
 {"lesson_id": "...", "kind": "positive|negative|anchor",
@@ -67,109 +67,110 @@ Verifier (passo separato, prompt diverso, idealmente modello diverso):
 ```
 
 ### 5. Replay buffer
-Batch di training = mix:
-- variazioni nuove (il "da imparare")
-- **ancore**, in rapporto configurabile (default 1:1):
-  - campione da corpus generico open (FineWeb / instruction dataset)
-  - self-distillation: output del modello corrente su capability protette
-    (generati PRIMA del training — sono lo snapshot del "vecchio sé")
-  - variazioni delle lezioni già consolidate nei cicli precedenti
+Training batch = mix of:
+- new variations (the "to be learned")
+- **anchors**, at a configurable ratio (default 1:1):
+  - sample from a generic open corpus (FineWeb / instruction dataset)
+  - self-distillation: current model's output on protected capabilities
+    (generated BEFORE training — they are the snapshot of the "old self")
+  - variations of lessons already consolidated in previous cycles
 
 ### 6. Train
-- LoRA su Gemma 3 270M IT (rank 8–16 per iniziare)
-- record `ConsolidationCandidate` (successore di `UpdateCandidate` per questa pipeline):
+- LoRA on Gemma 3 270M IT (rank 8–16 to start)
+- `ConsolidationCandidate` record (successor to `UpdateCandidate` for this pipeline):
 
 ```python
 class ConsolidationCandidate(BaseModel):
     consolidation_candidate_id: str
     lesson_ids: list[str]
-    dataset_ref: ArtifactRef          # il JSONL verificato
-    replay_config: dict               # ratio, sorgenti ancore
+    dataset_ref: ArtifactRef          # the verified JSONL
+    replay_config: dict               # ratio, anchor sources
     train_config: dict                # rank, lr, epochs, seed
-    base_model_ref: str               # incluso lo stack LoRA corrente
+    base_model_ref: str               # including the current LoRA stack
     status: CandidateStatus           # PREPARED / TRAINED / PROMOTED / ROLLED_BACK
     evaluation_run_ids: list[str]
 ```
 
-### 7. Evaluate (riusa `EvaluationSpec` / `EvaluationRun`)
-Tre famiglie di check, tutte pre/post:
-1. **Apprendimento**: held-out set di variazioni mai viste in training
-   → la lezione viene applicata?
-2. **Regressione comportamentale**: benchmark fissi sulle capability protette
-   (stesso set a ogni ciclo, è la serie storica del forgetting)
-3. **Drift interno** (v2): attivazioni SAE su un set di probe prompt fissi,
-   distanza feature pre/post come metrica di danno collaterale
-   → registrata come `TraceArtifact`
+### 7. Evaluate (reuses `EvaluationSpec` / `EvaluationRun`)
+Three families of checks, all pre/post:
+1. **Learning**: held-out set of variations never seen in training
+   → is the lesson applied?
+2. **Behavioral regression**: fixed benchmark on protected capabilities
+   (same set every cycle, it's the historical series for forgetting)
+3. **Internal drift** (v2): SAE activations on a fixed set of probe prompts,
+   pre/post feature distance as a collateral-damage metric
+   → registered as `TraceArtifact`
 
 ### 8. Promote / Rollback
-- tutti e tre i check sopra soglia → `PROMOTED` (LoRA in stack)
-- regressione sopra tolleranza → `ROLLED_BACK`, lezione resta `CANDIDATE`
-  con i dati diagnostici allegati
-- decisione merge-stack: rimandata. Stack puro fino a ~5 adapter,
-  poi si affronta il merge (problema aperto, v3)
+- all three checks above threshold → `PROMOTED` (LoRA in the stack)
+- regression above tolerance → `ROLLED_BACK`, lesson stays `CANDIDATE`
+  with the diagnostic data attached
+- stack-merge decision: deferred. Pure stack up to ~5 adapters,
+  then the merge problem is addressed (open problem, v3)
 
 ---
 
-## Iperparametri da tarare (in ordine di impatto)
-| Parametro | Default iniziale |
+## Hyperparameters to tune (in order of impact)
+| Parameter | Initial default |
 |---|---|
-| replay ratio (nuovo:ancore) | 1:1 |
-| variazioni per lezione | 30 |
-| quota negative examples | 20% |
-| soglia verifier | 0.7 |
+| replay ratio (new:anchors) | 1:1 |
+| variations per lesson | 30 |
+| negative examples quota | 20% |
+| verifier threshold | 0.7 |
 | LoRA rank | 8 |
 
 ---
 
-## POC "ciclo brutto" — definizione di fatto
-Un singolo ciclo end-to-end, anche manuale nei raccordi:
-- [ ] 50 memorie sintetiche → 1 cluster → 1 Lesson
-- [ ] 30 variazioni generate + verificate
-- [ ] buffer con ancore da corpus generico (skip self-distillation)
-- [ ] 1 run LoRA su Gemma 3 270M IT
-- [ ] eval pre/post: held-out variations + 1 benchmark di regressione
-- [ ] verdetto registrato in `EvaluationRun`
+## POC "rough cycle" — definition of done
+A single end-to-end cycle, even if manually wired:
+- [ ] 50 synthetic memories → 1 cluster → 1 Lesson
+- [ ] 30 variations generated + verified
+- [ ] buffer with anchors from a generic corpus (skip self-distillation)
+- [ ] 1 LoRA run on Gemma 3 270M IT
+- [ ] pre/post eval: held-out variations + 1 regression benchmark
+- [ ] verdict recorded in `EvaluationRun`
 
-Fuori scope POC: conflict check, SAE drift, multi-ciclo, merge LoRA.
-Se questo ciclo gira una volta, tutto il resto è iterazione.
+Out of scope for the POC: conflict check, SAE drift, multi-cycle, LoRA merge.
+If this cycle runs once, everything else is iteration.
 
 ---
 
-## Stato di implementazione nel Lab
+## Implementation status in the Lab
 
-Mappatura contratto → codice (`src/intra_model_memval/`):
+Contract-to-code mapping (`src/intra_model_memval/`):
 
-| Step | Dove | Stato |
+| Step | Where | Status |
 |---|---|---|
-| 1 Harvest | `selection.select_episodes` (riuso) | esistente |
-| 2 Lesson extraction | `consolidation.interfaces.LessonExtractor` | contratto (LLM-backed, fuori repo) |
-| 3 Conflict check | `consolidation.interfaces.ConflictChecker` | contratto (v2) |
-| 4a Generazione | `consolidation.interfaces.VariationGenerator` | contratto (LLM-backed) |
-| 4b Verifier gate | `consolidation.dataset.apply_verifier_gate` + `check_dataset_composition` | implementato (logica pura) |
-| 4c Dataset JSONL | `consolidation.dataset.register_dataset` (artifact registry) | implementato |
-| 5 Replay buffer | `consolidation.replay.build_replay_buffer` | implementato (mixing deterministico; sourcing ancore a carico del chiamante) |
-| 6 Train | `consolidation.training.GemmaLoraTrainer` (extra `[train]`) + `ConsolidationPlanner` | implementato (LoRA reale via peft/transformers) |
-| 7 Evaluate | `evaluation.EvaluationExecutor` + `HFTextGenerator`, su `EvaluationSpec` / `EvaluationRun` | implementato (containment match, pre/post) |
-| 8 Promote / Rollback | `consolidation.gating.decide_promotion` + `ConsolidationPlanner.apply_decision` | implementato |
+| 1 Harvest | `selection.select_episodes` (reused) | existing |
+| 2 Lesson extraction | `consolidation.interfaces.LessonExtractor` | contract (LLM-backed, outside the repo) |
+| 3 Conflict check | `consolidation.interfaces.ConflictChecker` | contract (v2) |
+| 4a Generation | `consolidation.interfaces.VariationGenerator` | contract (LLM-backed) |
+| 4b Verifier gate | `consolidation.dataset.apply_verifier_gate` + `check_dataset_composition` | implemented (pure logic) |
+| 4c Dataset JSONL | `consolidation.dataset.register_dataset` (artifact registry) | implemented |
+| 5 Replay buffer | `consolidation.replay.build_replay_buffer` | implemented (deterministic mixing; anchor sourcing is the caller's responsibility) |
+| 6 Train | `consolidation.training.GemmaLoraTrainer` (extra `[train]`) + `ConsolidationPlanner` | implemented (real LoRA via peft/transformers) |
+| 7 Evaluate | `evaluation.EvaluationExecutor` + `HFTextGenerator`, on `EvaluationSpec` / `EvaluationRun` | implemented (containment match, pre/post) |
+| 8 Promote / Rollback | `consolidation.gating.decide_promotion` + `ConsolidationPlanner.apply_decision` | implemented |
 
-Adattamenti rispetto al draft v0.1:
+Adaptations relative to the v0.1 draft:
 
-- `id` → `lesson_id` / `consolidation_candidate_id`, per coerenza con la convenzione
-  `<entity>_id` del resto del dominio. Il formato JSONL del dataset resta quello
-  del contratto (`lesson_id`, `kind`, `input`, `target`, `verifier_score`).
-- `ConsolidationCandidate` **affianca** `UpdateCandidate` invece di sostituirlo:
-  la rimozione di `UpdateCandidate` tocca store, CLI e test esistenti ed è
-  rimandata a una migrazione dedicata.
-- Gli iperparametri della tabella vivono in `consolidation.config.ConsolidationConfig`
-  con gli stessi default; le soglie di promozione in `consolidation.gating.GateThresholds`.
-- Persistenza: tabelle `lessons` e `consolidation_candidates` in `ExperimentStore`,
-  con `RunKind.CONSOLIDATION` per i run manifest.
-- Coerentemente con il resto del repo, nessun comportamento fake: generazione e
-  verifica LLM restano dietro `Protocol`; il training LoRA e la generazione HF
-  sono implementati ma vivono nell'extra opzionale `[train]` (import lazy, il
-  core resta senza dipendenze ML).
+- `id` → `lesson_id` / `consolidation_candidate_id`, for consistency with the
+  `<entity>_id` convention used across the rest of the domain. The dataset's
+  JSONL format stays the one from the contract (`lesson_id`, `kind`, `input`,
+  `target`, `verifier_score`).
+- `ConsolidationCandidate` **sits alongside** `UpdateCandidate` instead of replacing it:
+  removing `UpdateCandidate` touches the store, CLI and existing tests and is
+  deferred to a dedicated migration.
+- The hyperparameters from the table live in `consolidation.config.ConsolidationConfig`
+  with the same defaults; the promotion thresholds live in `consolidation.gating.GateThresholds`.
+- Persistence: `lessons` and `consolidation_candidates` tables in `ExperimentStore`,
+  with `RunKind.CONSOLIDATION` for the run manifests.
+- Consistent with the rest of the repo, no fake behavior: LLM generation and
+  verification stay behind `Protocol`; LoRA training and HF generation
+  are implemented but live in the optional `[train]` extra (lazy import, the
+  core stays without ML dependencies).
 
-## Esecuzione del POC (macchina GPU)
+## Running the POC (GPU machine)
 
 ```bash
 pip install -e ".[train]"
@@ -181,13 +182,13 @@ python scripts/run_consolidation_poc.py \
     --regression-jsonl examples/consolidation_poc/regression.jsonl
 ```
 
-Lo script esegue un ciclo completo: gate del verifier, split held-out, replay
-buffer con ancore, eval pre, training LoRA, eval post, verdetto promote/rollback.
-Tutto (store SQLite, dataset, adapter, `verdict.json`) finisce sotto `--workdir`.
-I file in `examples/consolidation_poc/` sono fixture giocattolo per provare il
-loop; per il POC vero vanno sostituiti con le 30 variazioni generate+verificate
-da LLM. Scoring eval: containment match normalizzato — volutamente rozzo, da
-sostituire quando il loop gira.
+The script runs a complete cycle: verifier gate, held-out split, replay
+buffer with anchors, pre eval, LoRA training, post eval, promote/rollback verdict.
+Everything (SQLite store, dataset, adapter, `verdict.json`) ends up under `--workdir`.
+The files in `examples/consolidation_poc/` are toy fixtures for trying the
+loop; for the real POC they need to be replaced with the 30 LLM-generated-and-verified
+variations. Eval scoring: normalized containment match — deliberately rough, to
+be replaced once the loop runs.
 
-Semplificazioni note del trainer POC: loss LM full-sequence (niente masking
-completion-only), un adapter per run (niente stacking sul LoRA precedente).
+Known POC-trainer simplifications: full-sequence LM loss (no completion-only
+masking), one adapter per run (no stacking on the previous LoRA).

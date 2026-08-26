@@ -2,34 +2,34 @@
 
 ## 1. Scope
 
-Il repository e' ora una base di infrastruttura per esperimenti auditabili su:
+The repository is now an infrastructure base for auditable experiments on:
 
 `episode -> trace artifact -> update candidate -> evaluation`
 
-e per il ciclo di consolidamento (vedi `CONSOLIDATION_DESIGN.md`):
+and for the consolidation cycle (see `CONSOLIDATION_DESIGN.md`):
 
-`episodi -> lesson -> dataset sintetico -> consolidation candidate -> evaluation -> promote/rollback`
+`episodes -> lesson -> synthetic dataset -> consolidation candidate -> evaluation -> promote/rollback`
 
-Non implementa ancora:
+Not yet implemented:
 
-- activation tracing reale
+- real activation tracing
 - pathway/circuit detection
 - localized weight updates
-- lesson extraction / variation generation / verifier LLM-backed (solo contratti `Protocol`)
+- LLM-backed lesson extraction / variation generation / verifier (only `Protocol` contracts)
 
-Il training LoRA reale (`GemmaLoraTrainer`) e l'esecuzione eval reale
-(`EvaluationExecutor` + `HFTextGenerator`) esistono ma vivono nell'extra
-opzionale `[train]`: il core resta installabile senza dipendenze ML.
-Lo scoring eval e' containment match minimale, da raffinare.
+Real LoRA training (`GemmaLoraTrainer`) and real eval execution
+(`EvaluationExecutor` + `HFTextGenerator`) exist but live in the
+optional `[train]` extra: the core stays installable without ML dependencies.
+Eval scoring is minimal containment match, to be refined.
 
 ## 2. Core entities
 
 ### EpisodeRecord
 
-Rappresenta un episodio osservato.
-Serve a descrivere il fatto acquisito e il suo contesto, non a codificare apprendimento.
+Represents an observed episode.
+Used to describe the acquired fact and its context, not to encode learning.
 
-Campi chiave:
+Key fields:
 
 - `episode_id`
 - `content_text`
@@ -46,10 +46,10 @@ Campi chiave:
 
 ### TraceArtifact
 
-Rappresenta un artefatto di tracing o un placeholder registrato.
-Il contratto esiste gia' per supportare futuri adapter, ma il repo non finge tracing reale.
+Represents a tracing artifact or a registered placeholder.
+The contract already exists to support future adapters, but the repo does not pretend to do real tracing.
 
-Campi chiave:
+Key fields:
 
 - `trace_id`
 - `episode_id`
@@ -64,10 +64,10 @@ Campi chiave:
 
 ### UpdateCandidate
 
-Rappresenta una proposta di update locale.
-Non e' un update eseguito, non modifica pesi e non dichiara successo.
+Represents a proposal for a local update.
+It is not an executed update, does not modify weights, and does not declare success.
 
-Campi chiave:
+Key fields:
 
 - `update_candidate_id`
 - `episode_id`
@@ -84,11 +84,11 @@ Campi chiave:
 
 ### Lesson
 
-Rappresenta una lezione estratta da un cluster di episodi, candidata al consolidamento.
-`boundary` e' obbligatorio: una lezione senza confini espliciti produce variazioni
-sintetiche che overgeneralizzano.
+Represents a lesson extracted from a cluster of episodes, a candidate for consolidation.
+`boundary` is mandatory: a lesson without explicit boundaries produces synthetic
+variations that overgeneralize.
 
-Campi chiave:
+Key fields:
 
 - `lesson_id`
 - `statement`
@@ -101,9 +101,9 @@ Campi chiave:
 
 ### SyntheticExample
 
-Una riga del dataset sintetico verificato (JSONL registrato come artifact).
+A row of the verified synthetic dataset (JSONL registered as an artifact).
 
-Campi chiave:
+Key fields:
 
 - `lesson_id`
 - `kind` (positive / negative / anchor)
@@ -113,10 +113,10 @@ Campi chiave:
 
 ### ConsolidationCandidate
 
-Rappresenta una proposta di training LoRA con replay per un insieme di lezioni.
-Non e' un training eseguito: registra dataset, configurazioni e verdetto.
+Represents a proposal for LoRA training with replay for a set of lessons.
+It is not an executed training run: it records dataset, configurations and verdict.
 
-Campi chiave:
+Key fields:
 
 - `consolidation_candidate_id`
 - `lesson_ids`
@@ -131,10 +131,10 @@ Campi chiave:
 
 ### EvaluationSpec
 
-Definisce cosa dovrebbe essere valutato.
-Separa i casi target, related e unrelated.
+Defines what should be evaluated.
+Separates target, related and unrelated cases.
 
-Campi chiave:
+Key fields:
 
 - `evaluation_spec_id`
 - `name`
@@ -146,10 +146,10 @@ Campi chiave:
 
 ### EvaluationRun
 
-Rappresenta un run di valutazione pianificato o registrato.
-Il repo oggi fornisce solo il contratto e un harness minimale di pianificazione.
+Represents a planned or registered evaluation run.
+The repo today provides only the contract and a minimal planning harness.
 
-Campi chiave:
+Key fields:
 
 - `evaluation_run_id`
 - `evaluation_spec_id`
@@ -162,43 +162,43 @@ Campi chiave:
 
 ### ExperimentRun
 
-Manifest basilare di run per audit e riproducibilita'.
-Viene usato per trace, update candidate, evaluation ed export.
+Basic run manifest for audit and reproducibility.
+Used for trace, update candidate, evaluation and export.
 
 ## 3. Module layout
 
 - `src/intra_model_memval/domain/`
-  Contratti dati.
+  Data contracts.
 - `src/intra_model_memval/persistence/`
-  `ExperimentStore`, artifact registry, export JSONL.
+  `ExperimentStore`, artifact registry, JSONL export.
 - `src/intra_model_memval/ingestion/`
-  `EpisodeIngestionService`, inclusa la normalizzazione del `context_hash`.
+  `EpisodeIngestionService`, including `context_hash` normalization.
 - `src/intra_model_memval/evaluation/`
-  `EvaluationHarness` per run placeholder ma auditabili;
-  `EvaluationExecutor` per run reali contro un `TextGenerator`.
+  `EvaluationHarness` for placeholder but auditable runs;
+  `EvaluationExecutor` for real runs against a `TextGenerator`.
 - `src/intra_model_memval/consolidation/`
-  Ciclo di consolidamento: gating verifier, replay buffer, verdetto promote/rollback,
-  `ConsolidationPlanner` e contratti `Protocol` per i passi LLM/training-dependent.
+  Consolidation cycle: verifier gating, replay buffer, promote/rollback verdict,
+  `ConsolidationPlanner` and `Protocol` contracts for the LLM/training-dependent steps.
 - `src/intra_model_memval/adapters/`
-  Contratti future-facing per model adapters.
+  Future-facing contracts for model adapters.
 - `src/intra_model_memval/selection.py`
-  Utility opzionale di curation/sampling. Non e' “memoria”.
+  Optional curation/sampling utility. Not "memory".
 
 ## 4. Legacy removal
 
-Il core del repository non contiene piu':
+The core of the repository no longer contains:
 
 - `MemoryRecord`
 - `NumericPayload`
 - `MemoryPersistence`
-- `self_eval` come compat layer
-- bridge interni verso il vecchio paradigma numeric-memory
+- `self_eval` as a compat layer
+- internal bridges to the old numeric-memory paradigm
 
 ## 5. Storage model
 
-`ExperimentStore` usa SQLite + directory artefatti.
+`ExperimentStore` uses SQLite + an artifact directory.
 
-Tabelle principali:
+Main tables:
 
 - `episodes`
 - `trace_artifacts`
@@ -210,31 +210,31 @@ Tabelle principali:
 - `experiment_runs`
 - `artifacts`
 
-Ruolo:
+Role:
 
-- persistenza transazionale
-- registry di file artefatto
-- run manifest basilari
-- query e search per episodi
-- audit trail iniziale
+- transactional persistence
+- artifact file registry
+- basic run manifests
+- query and search for episodes
+- initial audit trail
 
 ## 6. Design choices
 
-- Nessuna dipendenza ML pesante in questa fase.
-- Nessun comportamento fake che simuli tracing o update reale.
-- La selection resta utility opzionale.
-- La scoring logic non e' piu' nel save path come se fosse “memoria”.
-- Il vecchio modello numeric-first e' stato rimosso dal core, non solo declassato.
+- No heavy ML dependency at this stage.
+- No fake behavior that simulates real tracing or update.
+- Selection remains an optional utility.
+- Scoring logic is no longer in the save path as if it were "memory".
+- The old numeric-first model has been removed from the core, not just deprecated.
 
 ## 7. Future extension points
 
-Le estensioni previste, ma non ancora implementate, sono:
+The planned but not yet implemented extensions are:
 
-- model adapters che producono `TraceArtifact`
-- pathway/localization analyzers che popolano `candidate_localization`
-- update planners/applicators che consumano `UpdateCandidate`
-- evaluation executors reali che popolano `EvaluationRun.metrics` e `observations`
-- implementazioni LLM-backed di `LessonExtractor`, `VariationGenerator`,
+- model adapters that produce `TraceArtifact`
+- pathway/localization analyzers that populate `candidate_localization`
+- update planners/applicators that consume `UpdateCandidate`
+- real evaluation executors that populate `EvaluationRun.metrics` and `observations`
+- LLM-backed implementations of `LessonExtractor`, `VariationGenerator`,
   `VariationVerifier`, `ConflictChecker` (v2)
-- `LoraTrainerAdapter` reale su Gemma 3 270M IT che consuma `ConsolidationCandidate`
-- SAE drift check (v2) registrato come `TraceArtifact`
+- real `LoraTrainerAdapter` on Gemma 3 270M IT that consumes `ConsolidationCandidate`
+- SAE drift check (v2) registered as `TraceArtifact`
