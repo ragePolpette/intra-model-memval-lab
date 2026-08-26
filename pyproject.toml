@@ -1,7 +1,7 @@
 [project]
 name = "intra-model-memval-lab"
 version = "0.1.0"
-description = "Experiment infrastructure for episode, trace, update and evaluation workflows"
+description = "Auditable episode/trace/evaluation infrastructure plus a LoRA consolidation pipeline (lesson -> synthetic dataset -> LoRA training -> promote/rollback) for Gemma 3 270M IT"
 readme = "README.md"
 requires-python = ">=3.11"
 

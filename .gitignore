@@ -16,5 +16,14 @@ __pycache__/
 .pytest_cache/
 data/
 
+## Local experiment artifacts, model outputs and checkpoints
+runs/
+adapters/
+artifacts/
+checkpoints/
+*.db
+*.sqlite
+*.sqlite3
+
 # Local agent instruction files
 AGENTS.md
