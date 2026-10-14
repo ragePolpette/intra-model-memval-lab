@@ -1,4 +1,4 @@
-# `consolidation` module — Design Contract v0.1
+# `consolidation` module - Design Contract v0.1
 
 > The missing piece between `selection.py` (exists) and `evaluation/` (exists):
 > lesson → synthetic dataset → LoRA with replay → verdict.
@@ -17,7 +17,7 @@
 ### 1. Harvest
 Input: `PROMOTED` cluster from llm-memory's distillation (or Lab `EpisodeRecord`)
 from the last cycle, with `selection_score ≥ threshold`.
-Output: list of `(cluster, raw episodes)` — the raw episodes are needed at step 4,
+Output: list of `(cluster, raw episodes)` - the raw episodes are needed at step 4,
 don't discard them after lesson extraction.
 
 ### 2. Lesson extraction (second model)
@@ -45,7 +45,7 @@ Compares `statement` against the already `CONSOLIDATED` Lessons:
 
 *POC: deferrable to v2 (with <10 lessons, conflicts are visible at a glance).*
 
-### 4. Variation generation + Verifier — the core
+### 4. Variation generation + Verifier - the core
 Input: `Lesson` + raw source episodes.
 Output: `SyntheticDataset` (JSONL, registered as `ArtifactRef`).
 
@@ -72,7 +72,7 @@ Training batch = mix of:
 - **anchors**, at a configurable ratio (default 1:1):
   - sample from a generic open corpus (FineWeb / instruction dataset)
   - self-distillation: current model's output on protected capabilities
-    (generated BEFORE training — they are the snapshot of the "old self")
+    (generated BEFORE training - they are the snapshot of the "old self")
   - variations of lessons already consolidated in previous cycles
 
 ### 6. Train
@@ -121,7 +121,7 @@ Three families of checks, all pre/post:
 
 ---
 
-## POC "rough cycle" — definition of done
+## POC "rough cycle" - definition of done
 A single end-to-end cycle, even if manually wired:
 - [ ] 50 synthetic memories → 1 cluster → 1 Lesson
 - [ ] 30 variations generated + verified
@@ -187,7 +187,7 @@ buffer with anchors, pre eval, LoRA training, post eval, promote/rollback verdic
 Everything (SQLite store, dataset, adapter, `verdict.json`) ends up under `--workdir`.
 The files in `examples/consolidation_poc/` are toy fixtures for trying the
 loop; for the real POC they need to be replaced with the 30 LLM-generated-and-verified
-variations. Eval scoring: normalized containment match — deliberately rough, to
+variations. Eval scoring: normalized containment match - deliberately rough, to
 be replaced once the loop runs.
 
 Known POC-trainer simplifications: full-sequence LM loss (no completion-only
