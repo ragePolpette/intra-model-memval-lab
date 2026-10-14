@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from .models import ArtifactRef
+from .models import ArtifactRef, Rubric
 
 
 class LessonStatus(str, Enum):
@@ -60,6 +60,7 @@ class SyntheticExample(BaseModel):
     input: str
     target: str
     verifier_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    rubric: Rubric | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     schema_version: str = "synthetic-example-v1"
 

@@ -58,6 +58,8 @@ class ExperimentStore:
     def _conn(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # foreign_keys is a per-connection setting in SQLite, it is not persisted in the file.
+        conn.execute("PRAGMA foreign_keys=ON")
         try:
             yield conn
             conn.commit()
@@ -70,7 +72,6 @@ class ExperimentStore:
     def _init_db(self) -> None:
         with self._conn() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS experiment_runs (
@@ -249,6 +250,23 @@ class ExperimentStore:
             )
         return payload
 
+    def load_run(self, run_id: str) -> ExperimentRun | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM experiment_runs WHERE run_id = ?", (run_id,)).fetchone()
+        return None if row is None else self._run_from_row(row)
+
+    @staticmethod
+    def _run_from_row(row: sqlite3.Row) -> ExperimentRun:
+        return ExperimentRun(
+            run_id=row["run_id"],
+            run_kind=row["run_kind"],
+            status=row["status"],
+            title=row["title"],
+            manifest=json.loads(row["manifest_json"]),
+            created_at_utc=row["created_at_utc"],
+            updated_at_utc=row["updated_at_utc"],
+        )
+
     def list_runs(self, *, limit: int = 50, offset: int = 0) -> list[ExperimentRun]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -259,18 +277,7 @@ class ExperimentStore:
                 """,
                 (max(1, int(limit)), max(0, int(offset))),
             ).fetchall()
-        return [
-            ExperimentRun(
-                run_id=row["run_id"],
-                run_kind=row["run_kind"],
-                status=row["status"],
-                title=row["title"],
-                manifest=json.loads(row["manifest_json"]),
-                created_at_utc=row["created_at_utc"],
-                updated_at_utc=row["updated_at_utc"],
-            )
-            for row in rows
-        ]
+        return [self._run_from_row(row) for row in rows]
 
     def _write_artifact_bytes(self, data: bytes, *, suffix: str = ".bin") -> StoredArtifact:
         artifact_hash = _sha256_hex(data)
@@ -765,6 +772,7 @@ class ExperimentStore:
         self,
         *,
         status: str | None = None,
+        run_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[ConsolidationCandidate]:
@@ -773,6 +781,9 @@ class ExperimentStore:
         if status:
             sql.append("AND status = ?")
             params.append(str(status).strip().lower())
+        if run_id:
+            sql.append("AND run_id = ?")
+            params.append(run_id)
         sql.append("ORDER BY created_at_utc DESC, consolidation_candidate_id ASC LIMIT ? OFFSET ?")
         params.extend([max(1, int(limit)), max(0, int(offset))])
         with self._conn() as conn:

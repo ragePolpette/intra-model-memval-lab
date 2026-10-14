@@ -12,12 +12,18 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.6",
 ]
 train = [
     "torch>=2.1",
     "transformers>=4.50",
     "peft>=0.10",
     "accelerate>=0.30",
+]
+spike = [
+    "torch>=2.1",
+    "transformers>=4.50",
+    "sae-lens>=6.49,<7",
 ]
 
 [project.scripts]
@@ -32,3 +38,10 @@ packages = ["src/intra_model_memval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

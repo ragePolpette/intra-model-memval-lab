@@ -5,13 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
+from .consolidation.report import ReportError, build_consolidation_report, format_report_text
 from .domain import (
-    EpisodeRecord,
+    ConsolidationCandidateStatus,
     EvaluationSpec,
     ExperimentRun,
     ExperimentStatus,
+    LessonStatus,
     RunKind,
     TraceArtifact,
     UpdateCandidate,
@@ -141,12 +143,38 @@ def build_parser() -> argparse.ArgumentParser:
     export_episodes.add_argument("--seed", type=int, default=42)
 
     sub.add_parser("list-runs", help="List experiment runs")
+
+    list_lessons = sub.add_parser("list-lessons", help="List consolidation lessons")
+    list_lessons.add_argument("--status", choices=[item.value for item in LessonStatus])
+    list_lessons.add_argument("--limit", type=int, default=50)
+    list_lessons.add_argument("--offset", type=int, default=0)
+
+    show_lesson = sub.add_parser("show-lesson", help="Show one lesson")
+    show_lesson.add_argument("--lesson-id", required=True)
+
+    list_candidates = sub.add_parser(
+        "list-consolidation-candidates", help="List consolidation candidates"
+    )
+    list_candidates.add_argument("--status", choices=[item.value for item in ConsolidationCandidateStatus])
+    list_candidates.add_argument("--run-id")
+    list_candidates.add_argument("--limit", type=int, default=50)
+    list_candidates.add_argument("--offset", type=int, default=0)
+
+    show_candidate = sub.add_parser("show-consolidation-candidate", help="Show one consolidation candidate")
+    show_candidate.add_argument("--consolidation-candidate-id", required=True)
+
+    show_verdict = sub.add_parser("show-verdict", help="Show the promote/rollback verdict of a candidate")
+    show_verdict.add_argument("--consolidation-candidate-id", required=True)
+
+    report = sub.add_parser("report", help="Pre/post evaluation report of a consolidation run")
+    report.add_argument("--run-id", required=True)
+    report.add_argument("--format", choices=["text", "json"], default="text")
     return parser
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     store = _store_from_args(args)
 
     if args.command == "save-episode":
@@ -353,6 +381,55 @@ def main() -> int:
     if args.command == "list-runs":
         payload = store.list_runs()
         _print_json([item.model_dump(mode="json") for item in payload])
+        return 0
+
+    if args.command == "list-lessons":
+        payload = store.list_lessons(status=args.status, limit=args.limit, offset=args.offset)
+        _print_json([item.model_dump(mode="json") for item in payload])
+        return 0
+
+    if args.command == "show-lesson":
+        lesson = store.load_lesson(args.lesson_id)
+        if lesson is None:
+            raise SystemExit(f"Lesson not found: {args.lesson_id}")
+        _print_json(lesson.model_dump(mode="json"))
+        return 0
+
+    if args.command == "list-consolidation-candidates":
+        payload = store.list_consolidation_candidates(
+            status=args.status, run_id=args.run_id, limit=args.limit, offset=args.offset
+        )
+        _print_json([item.model_dump(mode="json") for item in payload])
+        return 0
+
+    if args.command in ("show-consolidation-candidate", "show-verdict"):
+        candidate = store.load_consolidation_candidate(args.consolidation_candidate_id)
+        if candidate is None:
+            raise SystemExit(f"Consolidation candidate not found: {args.consolidation_candidate_id}")
+        if args.command == "show-consolidation-candidate":
+            _print_json(candidate.model_dump(mode="json"))
+            return 0
+        _print_json(
+            {
+                "consolidation_candidate_id": candidate.consolidation_candidate_id,
+                "run_id": candidate.run_id,
+                "lesson_ids": candidate.lesson_ids,
+                "status": candidate.status.value,
+                "decision": candidate.result_summary.get("decision"),
+                "evaluation_run_ids": candidate.evaluation_run_ids,
+            }
+        )
+        return 0
+
+    if args.command == "report":
+        try:
+            report = build_consolidation_report(store, args.run_id)
+        except ReportError as exc:
+            raise SystemExit(str(exc)) from exc
+        if args.format == "json":
+            _print_json(report)
+        else:
+            print(format_report_text(report))
         return 0
 
     parser.print_help()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SourceProvenance(BaseModel):
@@ -148,10 +148,56 @@ class UpdateCandidate(BaseModel):
         return normalized
 
 
+def _normalize_term(value: Any) -> str:
+    term = " ".join(str(value).split()).lower()
+    if not term:
+        raise ValueError("rubric terms must not be empty")
+    return term
+
+
+class Rubric(BaseModel):
+    """Keyword rubric for scoring a generation.
+
+    `required` is a list of groups: every group must be matched by at least one of its
+    alternatives. `forbidden` terms must not appear at all. A bare string in `required`
+    is a single-alternative group.
+    """
+
+    required: list[list[str]]
+    forbidden: list[str] = Field(default_factory=list)
+
+    @field_validator("required", mode="before")
+    @classmethod
+    def normalize_required(cls, value: Any) -> list[list[str]]:
+        if not isinstance(value, list):
+            raise ValueError("required must be a list of term groups")
+        groups: list[list[str]] = []
+        for group in value:
+            alternatives = [group] if isinstance(group, str) else list(group)
+            normalized = [_normalize_term(item) for item in alternatives]
+            if not normalized:
+                raise ValueError("required groups must not be empty")
+            groups.append(normalized)
+        return groups
+
+    @field_validator("forbidden", mode="before")
+    @classmethod
+    def normalize_forbidden(cls, value: Any) -> list[str]:
+        return [_normalize_term(item) for item in value]
+
+    @model_validator(mode="after")
+    def validate_has_requirements(self) -> "Rubric":
+        # A rubric with only forbidden terms would score an empty or evasive answer as a pass.
+        if not self.required:
+            raise ValueError("rubric must define at least one required group")
+        return self
+
+
 class EvaluationCase(BaseModel):
     case_id: str
     prompt: str
     expected_response: str
+    rubric: Rubric | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("prompt", "expected_response")

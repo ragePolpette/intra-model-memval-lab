@@ -6,6 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from intra_model_memval.consolidation import (
+    PLANNER_MODE,
+    TRAINING_MODE,
     ConsolidationConfig,
     ConsolidationPlanner,
     GateThresholds,
@@ -15,6 +17,7 @@ from intra_model_memval.consolidation import (
     decide_promotion,
     examples_from_jsonl_bytes,
     register_dataset,
+    split_holdout,
 )
 from intra_model_memval.domain import (
     ConsolidationCandidateStatus,
@@ -91,6 +94,7 @@ def test_dataset_composition_checks_anchor_and_negative_quotas():
     report = check_dataset_composition(skewed)
     assert not report.is_acceptable
     assert len(report.issues) == 2
+    assert report.issues[0].startswith("kind=anchor example share")
 
 
 def test_dataset_jsonl_round_trip_via_artifact_registry(tmp_path: Path):
@@ -112,6 +116,14 @@ def test_replay_buffer_is_seeded_and_reports_shortfall():
     new_examples = [f"new-{i}" for i in range(10)]
     anchors = [f"anchor-{i}" for i in range(50)]
     buffer = build_replay_buffer(new_examples, anchors, ratio=1.0, seed=7)
+    assert buffer.summary() == {
+        "total": 20,
+        "new_count": 10,
+        "replay_anchor_count": 10,
+        "requested_replay_anchor_count": 10,
+        "replay_anchor_shortfall": 0,
+        "effective_ratio": 1.0,
+    }
     assert buffer.new_count == 10
     assert buffer.anchor_count == 10
     assert buffer.anchor_shortfall == 0
@@ -204,3 +216,122 @@ def test_planner_rollback_keeps_lessons_candidate(tmp_path: Path):
     assert final_candidate.status == ConsolidationCandidateStatus.ROLLED_BACK
     assert final_lessons[0].status == LessonStatus.CANDIDATE
     assert final_candidate.result_summary["decision"]["reasons"]
+
+
+def test_planner_updates_consolidation_run_status_and_mode(tmp_path: Path):
+    store = ExperimentStore(db_path=tmp_path / "exp.db", artifact_dir=tmp_path / "artifacts")
+    lesson = _lesson()
+    dataset_ref = register_dataset(store, [_example(SyntheticExampleKind.POSITIVE, 0.9, lesson.lesson_id)])
+    planner = ConsolidationPlanner()
+    run, _ = planner.prepare_candidate([lesson], dataset_ref, base_model_ref="gemma-3-270m-it")
+    assert run.manifest["mode"] == PLANNER_MODE
+    store.register_run(run)
+
+    running = planner.update_run(run, status=ExperimentStatus.RUNNING, mode=TRAINING_MODE)
+    completed = planner.update_run(
+        running,
+        status=ExperimentStatus.COMPLETED,
+        manifest_updates={"adapter_artifact_id": "artifact-1"},
+    )
+    store.register_run(completed)
+    loaded = store.load_run(run.run_id)
+    assert loaded.status == ExperimentStatus.COMPLETED
+    assert loaded.manifest["mode"] == TRAINING_MODE
+    assert loaded.manifest["adapter_artifact_id"] == "artifact-1"
+    assert loaded.manifest["dataset_artifact_id"] == dataset_ref.artifact_id
+
+    with pytest.raises(ValueError):
+        planner.update_run(completed, status=ExperimentStatus.FAILED)
+    with pytest.raises(ValueError):
+        planner.update_run(running, status=ExperimentStatus.PLANNED)
+    failed = planner.update_run(running, status=ExperimentStatus.FAILED, manifest_updates={"error": "boom"})
+    assert failed.status == ExperimentStatus.FAILED
+    assert failed.manifest["error"] == "boom"
+
+
+def _kinds(examples):
+    return sorted(item.kind.value for item in examples)
+
+
+def _distinct_examples(kind: SyntheticExampleKind, count: int) -> list[SyntheticExample]:
+    return [
+        SyntheticExample(
+            lesson_id="lesson-1", kind=kind, input=f"{kind.value} input {i}", target="t", verifier_score=0.9
+        )
+        for i in range(count)
+    ]
+
+
+def test_split_holdout_is_stratified_and_keeps_anchor_kind_in_training():
+    examples = (
+        _distinct_examples(SyntheticExampleKind.POSITIVE, 8)
+        + _distinct_examples(SyntheticExampleKind.NEGATIVE, 4)
+        + _distinct_examples(SyntheticExampleKind.ANCHOR, 6)
+    )
+    for seed in range(20):
+        split = split_holdout(examples, fraction=0.2, seed=seed)
+        assert _kinds(split.holdout) == ["negative", "positive", "positive"]
+        assert all(item.kind != SyntheticExampleKind.ANCHOR for item in split.holdout)
+        assert len(split.train) + len(split.holdout) == len(examples)
+        assert not {item.input for item in split.train} & {item.input for item in split.holdout}
+
+    assert split_holdout(examples, fraction=0.2, seed=3).holdout == split_holdout(
+        examples, fraction=0.2, seed=3
+    ).holdout
+    counts = split_holdout(examples, fraction=0.2, seed=3).counts_by_kind()
+    assert counts["anchor"] == {"train": 6, "holdout": 0}
+    assert counts["negative"] == {"train": 3, "holdout": 1}
+
+
+def test_split_holdout_never_empties_a_kind():
+    examples = _distinct_examples(SyntheticExampleKind.POSITIVE, 2) + _distinct_examples(
+        SyntheticExampleKind.NEGATIVE, 1
+    )
+    split = split_holdout(examples, fraction=0.9, seed=1)
+    assert _kinds(split.holdout) == ["positive"]
+    assert _kinds(split.train) == ["negative", "positive"]
+    with pytest.raises(ValueError):
+        split_holdout(examples, fraction=1.0)
+
+
+def test_regression_gate_supports_case_tolerance_and_minimum_cases():
+    one_lost_of_twelve = {"learning_score": 0.9, "regression_pre": 1.0, "regression_post": 11 / 12}
+    strict = decide_promotion(**one_lost_of_twelve, regression_case_count=12)
+    assert not strict.checks["regression"]
+
+    tolerant = decide_promotion(
+        **one_lost_of_twelve,
+        regression_case_count=12,
+        thresholds=GateThresholds(regression_tolerance_cases=1, min_regression_cases=10),
+    )
+    assert tolerant.promoted
+    assert tolerant.checks["regression_coverage"]
+
+    two_lost = decide_promotion(
+        learning_score=0.9,
+        regression_pre=1.0,
+        regression_post=10 / 12,
+        regression_case_count=12,
+        thresholds=GateThresholds(regression_tolerance_cases=1),
+    )
+    assert not two_lost.promoted
+    assert "lost 2 cases" in two_lost.reasons[0]
+
+    too_small = decide_promotion(
+        learning_score=0.9,
+        regression_pre=1.0,
+        regression_post=1.0,
+        regression_case_count=6,
+        thresholds=GateThresholds(min_regression_cases=10),
+    )
+    assert not too_small.promoted
+    assert not too_small.checks["regression_coverage"]
+
+    unknown_count = decide_promotion(
+        learning_score=0.9,
+        regression_pre=1.0,
+        regression_post=1.0,
+        thresholds=GateThresholds(min_regression_cases=10, regression_tolerance_cases=0),
+    )
+    assert not unknown_count.checks["regression_coverage"]
+    assert not unknown_count.checks["regression"]

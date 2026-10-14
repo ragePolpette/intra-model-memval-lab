@@ -17,3 +17,6 @@ For the current, verified state of the repository, use:
   (`MemoryRecord`, `NumericPayload`, `MemoryPersistence`, `self_eval`) from the core package
   during an early rewrite. That paradigm no longer exists anywhere in the codebase; this note
   is kept only as a record of that decision.
+- **`SAE_DRIFT_SPIKE.md`** - verification notes for the throwaway Gemma Scope 2 SAE spike
+  (`scripts/spikes/sae_drift_spike.py`): which `sae-lens` entry points and release names were
+  checked, and why layer 9 / width 16k / `l0_medium` was chosen.

@@ -66,7 +66,11 @@ def select_episodes(
         session_id = str(episode.session_id or "")
         if policy.max_per_source_label is not None and per_source.get(source_label, 0) >= policy.max_per_source_label:
             continue
-        if session_id and policy.max_per_session is not None and per_session.get(session_id, 0) >= policy.max_per_session:
+        if (
+            session_id
+            and policy.max_per_session is not None
+            and per_session.get(session_id, 0) >= policy.max_per_session
+        ):
             continue
         selected.append(episode)
         per_source[source_label] = per_source.get(source_label, 0) + 1

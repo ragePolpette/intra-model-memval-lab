@@ -17,12 +17,13 @@ Requires Python 3.11 or newer.
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+ruff check .
 pytest
 ```
 
 The `[train]` extra (`pip install -e ".[train]"`) is only needed for real LoRA training and generation. The test suite does not require it.
 
-No linter is configured in this repository at the moment.
+Lint with `ruff check .` (installed by the `[dev]` extra, configured in `pyproject.toml`, run in CI).
 
 ## Guidelines
 

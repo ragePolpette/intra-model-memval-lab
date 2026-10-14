@@ -1,6 +1,12 @@
-{"input": "What is the capital of Italy?", "target": "Rome"}
-{"input": "What is 7 plus 5?", "target": "12"}
-{"input": "What is the chemical symbol for water?", "target": "H2O"}
-{"input": "Which planet is known as the Red Planet?", "target": "Mars"}
-{"input": "How many continents are there on Earth?", "target": "seven"}
-{"input": "What language is primarily spoken in Mexico?", "target": "Spanish"}
+{"input": "What is the capital of Italy?", "target": "Rome", "rubric": {"required": [["rome", "roma"]]}}
+{"input": "What is 7 plus 5?", "target": "12", "rubric": {"required": [["12", "twelve"]]}}
+{"input": "What is the chemical symbol for water?", "target": "H2O", "rubric": {"required": [["h2o"]]}}
+{"input": "Which planet is known as the Red Planet?", "target": "Mars", "rubric": {"required": [["mars"]]}}
+{"input": "How many continents are there on Earth?", "target": "seven", "rubric": {"required": [["seven", "7"]]}}
+{"input": "What language is primarily spoken in Mexico?", "target": "Spanish", "rubric": {"required": [["spanish"]]}}
+{"input": "What is the largest ocean on Earth?", "target": "Pacific", "rubric": {"required": [["pacific"]]}}
+{"input": "How many legs does a spider have?", "target": "eight", "rubric": {"required": [["eight", "8"]]}}
+{"input": "Which gas do plants absorb from the air for photosynthesis?", "target": "carbon dioxide", "rubric": {"required": [["carbon dioxide", "co2"]]}}
+{"input": "Who wrote Romeo and Juliet?", "target": "Shakespeare", "rubric": {"required": [["shakespeare"]]}}
+{"input": "What is the freezing point of water in Celsius?", "target": "0", "rubric": {"required": [["0", "zero"]]}}
+{"input": "What is the square root of 81?", "target": "9", "rubric": {"required": [["9", "nine"]]}}

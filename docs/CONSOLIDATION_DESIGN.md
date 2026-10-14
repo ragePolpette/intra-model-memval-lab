@@ -149,7 +149,7 @@ Contract-to-code mapping (`src/intra_model_memval/`):
 | 4c Dataset JSONL | `consolidation.dataset.register_dataset` (artifact registry) | implemented |
 | 5 Replay buffer | `consolidation.replay.build_replay_buffer` | implemented (deterministic mixing; anchor sourcing is the caller's responsibility) |
 | 6 Train | `consolidation.training.GemmaLoraTrainer` (extra `[train]`) + `ConsolidationPlanner` | implemented (real LoRA via peft/transformers) |
-| 7 Evaluate | `evaluation.EvaluationExecutor` + `HFTextGenerator`, on `EvaluationSpec` / `EvaluationRun` | implemented (containment match, pre/post) |
+| 7 Evaluate | `evaluation.EvaluationExecutor` + `HFTextGenerator`, on `EvaluationSpec` / `EvaluationRun` | implemented (keyword rubric per case, containment fallback, pre/post) |
 | 8 Promote / Rollback | `consolidation.gating.decide_promotion` + `ConsolidationPlanner.apply_decision` | implemented |
 
 Adaptations relative to the v0.1 draft:
@@ -183,12 +183,32 @@ python scripts/run_consolidation_poc.py \
 ```
 
 The script runs a complete cycle: verifier gate, held-out split, replay
-buffer with anchors, pre eval, LoRA training, post eval, promote/rollback verdict.
-Everything (SQLite store, dataset, adapter, `verdict.json`) ends up under `--workdir`.
-The files in `examples/consolidation_poc/` are toy fixtures for trying the
-loop; for the real POC they need to be replaced with the 30 LLM-generated-and-verified
-variations. Eval scoring: normalized containment match - deliberately rough, to
-be replaced once the loop runs.
+buffer with replay anchors, pre eval, LoRA training, post eval, promote/rollback verdict.
+Everything (SQLite store, dataset, adapter, `verdict.json`, `experiment_manifest.json`)
+ends up under `--workdir`. The files in `examples/consolidation_poc/` are toy fixtures for
+trying the loop; for the real POC they need to be replaced with the 30
+LLM-generated-and-verified variations.
+
+- Held-out split: seeded and stratified by `kind`; `kind=anchor` variations always stay
+  in training, so the learning check measures generalization on positive and negative
+  variations only.
+- Eval scoring: each case may carry a `rubric` (`required` groups of alternative terms,
+  all groups must match; `forbidden` terms must not appear; word-boundary matching on
+  normalized text). Cases without a rubric fall back to normalized containment of the
+  expected response. Rubrics are keyword evidence, not semantics: a negated answer can
+  still match unless the rubric forbids it.
+- Regression gate: with N regression cases one case is worth 1/N of the match rate, so a
+  rate tolerance below 1/N is zero tolerance. `--regression-tolerance-cases` sets the
+  tolerance as a number of lost cases, and `--min-regression-cases` (default 10) rolls the
+  candidate back when the benchmark is smaller than that.
+- Audit trail: the consolidation `ExperimentRun` goes `planned` (`mode=planner-no-training`)
+  -> `running` (`mode=lora-training`) -> `completed` or `failed` (with the error recorded).
+- Inspect a run with `intra-model-exp --db-path <workdir>/experiment.db --artifact-dir
+  <workdir>/artifacts report --run-id <run_id>` (pre/post per family and per case).
+
+Terminology: "replay anchors" are the generic-corpus samples from `--anchors-jsonl` mixed
+into the training buffer; "kind=anchor" examples are lesson variations built from real
+episodes. Reports use `replay_anchor_*` for the former.
 
 Known POC-trainer simplifications: full-sequence LM loss (no completion-only
 masking), one adapter per run (no stacking on the previous LoRA).

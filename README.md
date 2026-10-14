@@ -15,13 +15,13 @@ The repository contains a Pydantic domain model with a transactional SQLite stor
 Verified against the current source:
 
 - **Domain + persistence layer**: `EpisodeRecord`, `TraceArtifact`, `UpdateCandidate`, `Lesson`, `ConsolidationCandidate`, `EvaluationSpec`, `EvaluationRun`, `ExperimentRun`, all Pydantic models backed by a transactional SQLite `ExperimentStore` with a content-addressed artifact registry (`src/intra_model_memval/domain/`, `persistence/`).
-- **CLI** (`intra-model-exp`): create/list episodes, register trace-artifact placeholders, create/list update candidates, create/list evaluation specs and runs, export curated episode sets to JSONL. See [CLI commands](#cli-commands) for the full list.
-- **Consolidation pipeline** (`src/intra_model_memval/consolidation/`): the "sleep cycle": verifier gating and composition checks on a synthetic dataset, a deterministic replay-buffer builder (new examples + anchors), a `ConsolidationPlanner` that records `PREPARED → TRAINED → PROMOTED/ROLLED_BACK` state transitions, and a promote/rollback gate (`decide_promotion`) driven by pre/post evaluation metrics.
+- **CLI** (`intra-model-exp`): create/list episodes, register trace-artifact placeholders, create/list update candidates, create/list evaluation specs and runs, export curated episode sets to JSONL, read lessons, consolidation candidates and verdicts, and print a pre/post `report` for a consolidation run. See [CLI commands](#cli-commands) for the full list.
+- **Consolidation pipeline** (`src/intra_model_memval/consolidation/`): the "sleep cycle": verifier gating and composition checks on a synthetic dataset, a seeded held-out split stratified by example kind, a deterministic replay-buffer builder (new examples + replay anchors), a `ConsolidationPlanner` that records `PREPARED → TRAINED → PROMOTED/ROLLED_BACK` candidate transitions and `planned → running → completed/failed` run transitions, and a promote/rollback gate (`decide_promotion`) driven by pre/post evaluation metrics.
 - **Real LoRA training and evaluation**, gated behind the optional `[train]` extra so the core package stays dependency-light:
   - `GemmaLoraTrainer` fine-tunes a LoRA adapter on **Gemma 3 270M IT** via `transformers` + `peft`, on the replay buffer built by the pipeline above.
   - `HFTextGenerator` runs the base model, or the base model plus a trained adapter, for generation.
-  - `EvaluationExecutor` runs an `EvaluationSpec` (target / related / unrelated cases) against a generator and scores each case with a normalized containment match. It is deliberately simple, meant to be replaced with a stronger scorer once the loop is validated end to end.
-- **End-to-end script** (`scripts/run_consolidation_poc.py`): runs one full cycle: verifier gate → held-out split → replay buffer → pre-training eval on the base model → LoRA training → post-training eval on base+adapter → promote/rollback verdict. It writes the store, the trained adapter, and a `verdict.json` under a work directory. Toy fixtures for trying the loop live in `examples/consolidation_poc/`.
+  - `EvaluationExecutor` runs an `EvaluationSpec` (target / related / unrelated cases) against a generator. A case with a `rubric` (required term groups with alternatives, plus forbidden terms) is scored on that rubric, so paraphrased answers can pass; a case without one falls back to a normalized containment match on the expected response. Rubrics are keyword evidence, not semantic judgement.
+- **End-to-end script** (`scripts/run_consolidation_poc.py`): runs one full cycle: verifier gate → held-out split → replay buffer → pre-training eval on the base model → LoRA training → post-training eval on base+adapter → promote/rollback verdict. It writes the store, the trained adapter, a `verdict.json` and an `experiment_manifest.json` (package versions, git commit, base model revision or local hash, resolved config, seed, devices, pre/post metrics, adapter path) under a work directory. Model and trainer are injectable, and the test suite runs the whole script with fakes. Toy fixtures for trying the loop live in `examples/consolidation_poc/`.
 - **Episode selection utilities** (`selection.py`): optional sampling/curation over stored episodes (tag/source filters, per-source and per-session caps, seeded shuffling). This is dataset curation, not a memory mechanism.
 
 ## Quick start
@@ -54,7 +54,11 @@ save-episode              create-update-candidate       create-evaluation-run
 list-episodes             list-update-candidates        list-evaluation-runs
 register-trace            create-evaluation-spec        export-episodes
 list-traces               list-evaluation-specs         list-runs
+list-lessons              list-consolidation-candidates show-verdict
+show-lesson               show-consolidation-candidate  report
 ```
+
+`report --run-id <consolidation run id> [--format text|json]` prints the pre/post match rate per evaluation family (learning, regression) and per case.
 
 ### Consolidation POC
 
@@ -69,6 +73,10 @@ python scripts/run_consolidation_poc.py \
     --regression-jsonl examples/consolidation_poc/regression.jsonl
 ```
 
+Useful flags: `--max-new-tokens` (generation budget, default 256), `--base-model-revision` (pin a hub revision), `--min-regression-cases` (default 10: the candidate is rolled back when the regression benchmark is smaller), `--regression-tolerance-cases` (tolerance as a number of lost regression cases instead of a rate). On a benchmark of N cases one case is worth 1/N of the match rate, so the default rate tolerance of 0.05 means zero lost cases for any N below 20.
+
+The held-out set is stratified by example kind; `kind=anchor` variations (built from real episodes) always stay in training. These are distinct from the replay anchors passed with `--anchors-jsonl`, which reports label `replay_anchor_*`.
+
 The fixtures in `examples/consolidation_poc/` are toy data for exercising the loop; a real cycle needs LLM-generated and verified lesson variations in their place. See `docs/CONSOLIDATION_DESIGN.md` for the pipeline design and its known simplifications.
 
 ## Consolidation cycle
@@ -79,7 +87,7 @@ The loop the consolidation pipeline implements, end to end:
 
 1. **Episodes -> Lesson**: a cluster of `EpisodeRecord`s is turned into a `Lesson`. Extraction itself is an external, LLM-backed step (see "Project status").
 2. **Lesson -> verified dataset**: candidate variations are gated by `apply_verifier_gate` and `check_dataset_composition` (`consolidation/dataset.py`), then registered as a JSONL artifact via `register_dataset`.
-3. **Replay + LoRA**: `build_replay_buffer` (`consolidation/replay.py`) mixes new examples with anchors; `GemmaLoraTrainer` (`consolidation/training.py`, `[train]` extra) trains a LoRA adapter on Gemma 3 270M IT.
+3. **Replay + LoRA**: `build_replay_buffer` (`consolidation/replay.py`) mixes new examples with replay anchors; `GemmaLoraTrainer` (`consolidation/training.py`, `[train]` extra) trains a LoRA adapter on Gemma 3 270M IT.
 4. **Eval pre/post**: `EvaluationExecutor` (`evaluation/executor.py`) runs the same `EvaluationSpec` against the base model and against base+adapter.
 5. **Promote/rollback**: `decide_promotion` (`consolidation/gating.py`) compares pre/post metrics against `GateThresholds`; `ConsolidationPlanner.apply_decision` (`consolidation/pipeline.py`) records the verdict and updates the candidate's and lessons' status.
 
@@ -121,7 +129,7 @@ This is an active experimental lab, not a finished product. The following are no
 
 - No activation tracing, pathway/circuit detection, or localized weight-update execution. `TraceArtifact` and `UpdateCandidate` are recorded contracts, not the result of real model introspection.
 - No lesson extraction, variation generation, verification, or conflict-checking model. Those steps are defined as `Protocol` interfaces in `consolidation/interfaces.py` for an LLM-backed implementation to plug into; none ships in this repo.
-- **No internal-feature / interpretability drift measurement.** The design anticipates a future SAE-based drift check (activation distance on fixed probe prompts, pre/post training) as part of the promote/rollback gate (`GateThresholds.drift_max` exists as a field for it), but it is not implemented or wired up. Promotion decisions today are based only on held-out learning rate and behavioral regression on containment-matched cases.
+- **No internal-feature / interpretability drift measurement.** The design anticipates a future SAE-based drift check (activation distance on fixed probe prompts, pre/post training) as part of the promote/rollback gate (`GateThresholds.drift_max` exists as a field for it), but it is not implemented or wired up. Promotion decisions today are based only on held-out learning rate and behavioral regression, scored with keyword rubrics or containment.
 - No adapter stacking across consolidation cycles: the trainer produces one LoRA adapter per run.
 - No completion-only loss masking in the POC trainer (it trains on the full chat-formatted sequence).
 
@@ -137,7 +145,11 @@ pip install -e ".[dev]"
 pytest
 ```
 
-No linter is configured. See [CONTRIBUTING.md](CONTRIBUTING.md). `scripts/spikes/sae_drift_spike.py` is a throwaway experiment, not wired into the pipeline.
+```bash
+ruff check .
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and, for behavior changes, [CHANGELOG.md](CHANGELOG.md). `scripts/spikes/sae_drift_spike.py` is a throwaway experiment, not wired into the pipeline; its dependencies are in the `[spike]` extra (`pip install -e ".[spike]"`) and its verification notes in `docs/history/SAE_DRIFT_SPIKE.md`.
 
 Built with AI-assisted workflows; architecture, tradeoffs, integration, review, and validation were directed by the author.
 

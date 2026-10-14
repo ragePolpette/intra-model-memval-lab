@@ -1,8 +1,9 @@
 """Planner that records auditable consolidation candidates without faking training.
 
 Mirrors EvaluationHarness: it produces run manifests and status transitions
-(PREPARED -> TRAINED -> PROMOTED / ROLLED_BACK); the actual LoRA training and
-evaluation execution live behind the adapter interfaces.
+(candidate: PREPARED -> TRAINED -> PROMOTED / ROLLED_BACK; run: PLANNED -> RUNNING ->
+COMPLETED / FAILED); the actual LoRA training and evaluation execution live behind
+the adapter interfaces.
 """
 
 from __future__ import annotations
@@ -23,6 +24,12 @@ from ..utils.ids import new_id, utc_now_iso
 from .config import ConsolidationConfig
 from .gating import PromotionDecision
 
+PLANNER_MODE = "planner-no-training"
+TRAINING_MODE = "lora-training"
+
+_FINAL_RUN_STATUSES = frozenset(
+    {ExperimentStatus.COMPLETED, ExperimentStatus.FAILED, ExperimentStatus.CANCELLED}
+)
 
 class ConsolidationPlanner:
     def __init__(self, config: ConsolidationConfig | None = None):
@@ -58,7 +65,7 @@ class ConsolidationPlanner:
             "base_model_ref": base_model_ref,
             "replay_config": actual_replay_config,
             "train_config": actual_train_config,
-            "mode": "planner-no-training",
+            "mode": PLANNER_MODE,
         }
         experiment_run = ExperimentRun(
             run_id=actual_run_id,
@@ -82,6 +89,33 @@ class ConsolidationPlanner:
             updated_at_utc=now,
         )
         return experiment_run, candidate
+
+    def update_run(
+        self,
+        run: ExperimentRun,
+        *,
+        status: ExperimentStatus,
+        mode: str | None = None,
+        manifest_updates: dict[str, Any] | None = None,
+    ) -> ExperimentRun:
+        """Return the consolidation run with a new status, execution mode and manifest fields.
+
+        PLANNED/RUNNING runs may move forward; COMPLETED, FAILED and CANCELLED are final.
+        """
+        if run.run_kind != RunKind.CONSOLIDATION:
+            raise ValueError(f"expected a consolidation run, got {run.run_kind.value}")
+        if run.status in _FINAL_RUN_STATUSES:
+            raise ValueError(f"cannot update a run in final status {run.status.value}")
+        if status == ExperimentStatus.PLANNED and run.status != ExperimentStatus.PLANNED:
+            raise ValueError(f"cannot move a run back to planned from {run.status.value}")
+        manifest = dict(run.manifest)
+        if manifest_updates:
+            manifest.update(manifest_updates)
+        if mode is not None:
+            manifest["mode"] = mode
+        return run.model_copy(
+            update={"status": status, "manifest": manifest, "updated_at_utc": utc_now_iso()}
+        )
 
     def mark_trained(
         self,
