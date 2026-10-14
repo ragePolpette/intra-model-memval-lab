@@ -1,6 +1,8 @@
-"""Replay buffer assembly: mix new variations with anchors at a configurable ratio.
+"""Replay buffer assembly: mix new variations with replay anchors at a configurable ratio.
 
-Anchors are whatever guards against forgetting: generic-corpus samples,
+Replay anchors are not the same thing as SyntheticExampleKind.ANCHOR examples (lesson
+variations built from real episodes, which count as new examples here). Replay anchors
+are whatever guards against forgetting: generic-corpus samples,
 self-distillation outputs snapshotted before training, or variations of lessons
 consolidated in previous cycles. This module only does the deterministic mixing;
 sourcing the anchors is the caller's job.
@@ -22,12 +24,13 @@ class ReplayBuffer:
     anchor_shortfall: int
 
     def summary(self) -> dict[str, Any]:
+        """Keys say "replay_anchor" to keep them apart from SyntheticExampleKind.ANCHOR examples."""
         return {
             "total": len(self.items),
             "new_count": self.new_count,
-            "anchor_count": self.anchor_count,
-            "requested_anchor_count": self.requested_anchor_count,
-            "anchor_shortfall": self.anchor_shortfall,
+            "replay_anchor_count": self.anchor_count,
+            "requested_replay_anchor_count": self.requested_anchor_count,
+            "replay_anchor_shortfall": self.anchor_shortfall,
             "effective_ratio": (self.anchor_count / self.new_count) if self.new_count else 0.0,
         }
 

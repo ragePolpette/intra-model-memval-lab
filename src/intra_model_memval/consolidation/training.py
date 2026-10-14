@@ -11,6 +11,7 @@ POC simplifications, on purpose:
 
 from __future__ import annotations
 
+import gc
 import io
 import zipfile
 from pathlib import Path
@@ -20,6 +21,7 @@ from ..domain import ArtifactRef, ConsolidationCandidate, SyntheticExample
 from ..persistence import ExperimentStore
 
 DEFAULT_BASE_MODEL = "google/gemma-3-270m-it"
+DEFAULT_MAX_NEW_TOKENS = 256
 
 TRAIN_DEFAULTS: dict[str, Any] = {
     "rank": 8,
@@ -67,6 +69,17 @@ def zip_directory_bytes(directory: Path) -> bytes:
     return buffer.getvalue()
 
 
+def release_accelerator_memory() -> None:
+    """Free cached CUDA memory after a model was dropped; a no-op without torch or CUDA."""
+    gc.collect()
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 class GemmaLoraTrainer:
     """LoraTrainerAdapter implementation: trains an adapter and registers it as artifact.
 
@@ -82,11 +95,13 @@ class GemmaLoraTrainer:
         base_model_id: str = DEFAULT_BASE_MODEL,
         output_dir: Path | str = "adapters",
         device: str | None = None,
+        revision: str | None = None,
     ):
         self.store = store
         self.base_model_id = base_model_id
         self.output_dir = Path(output_dir)
         self.device = device
+        self.revision = revision
 
     def train(self, candidate: ConsolidationCandidate, buffer: Sequence[Any]) -> ArtifactRef:
         import torch
@@ -106,11 +121,13 @@ class GemmaLoraTrainer:
         use_bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
         torch.manual_seed(int(config["seed"]))
 
-        tokenizer = AutoTokenizer.from_pretrained(self.base_model_id)
+        tokenizer = AutoTokenizer.from_pretrained(self.base_model_id, revision=self.revision)
         model = AutoModelForCausalLM.from_pretrained(
             self.base_model_id,
+            revision=self.revision,
             torch_dtype=torch.bfloat16 if use_bf16 else torch.float32,
         )
+        resolved_revision = getattr(model.config, "_commit_hash", None)
         lora_config = LoraConfig(
             r=int(config["rank"]),
             lora_alpha=int(config["lora_alpha"]),
@@ -165,6 +182,7 @@ class GemmaLoraTrainer:
                 "metadata": {
                     "adapter_dir": str(adapter_dir),
                     "base_model_id": self.base_model_id,
+                    "base_model_revision": resolved_revision,
                     "train_config": config,
                     "train_loss": float(result.training_loss),
                     "buffer_size": len(buffer),
@@ -183,17 +201,21 @@ class HFTextGenerator:
         *,
         adapter_dir: Path | str | None = None,
         device: str | None = None,
-        max_new_tokens: int = 256,
+        max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+        revision: str | None = None,
     ):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         use_bf16 = self.device == "cuda" and torch.cuda.is_bf16_supported()
         self.max_new_tokens = max_new_tokens
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model_id, revision=revision)
         model = AutoModelForCausalLM.from_pretrained(
             base_model_id,
+            revision=revision,
             torch_dtype=torch.bfloat16 if use_bf16 else torch.float32,
         )
         if adapter_dir is not None:

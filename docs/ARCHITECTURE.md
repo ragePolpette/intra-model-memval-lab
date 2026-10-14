@@ -20,7 +20,9 @@ Not yet implemented:
 Real LoRA training (`GemmaLoraTrainer`) and real eval execution
 (`EvaluationExecutor` + `HFTextGenerator`) exist but live in the
 optional `[train]` extra: the core stays installable without ML dependencies.
-Eval scoring is minimal containment match, to be refined.
+Eval scoring uses the per-case keyword rubric (`Rubric`: required term groups plus
+forbidden terms) when a case defines one, and falls back to normalized containment
+of the expected response otherwise.
 
 ## 2. Core entities
 
@@ -106,10 +108,13 @@ A row of the verified synthetic dataset (JSONL registered as an artifact).
 Key fields:
 
 - `lesson_id`
-- `kind` (positive / negative / anchor)
+- `kind` (positive / negative / anchor): `anchor` here means a variation built from a
+  paraphrased real episode. It is not a replay anchor (the generic-corpus samples mixed in
+  by `build_replay_buffer`, reported as `replay_anchor_*`).
 - `input`
 - `target`
 - `verifier_score`
+- `rubric` (optional): evaluation rubric used when the example lands in the held-out set
 
 ### ConsolidationCandidate
 

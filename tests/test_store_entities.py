@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from intra_model_memval.domain import (
     EvaluationCase,
+    EvaluationRun,
     EvaluationSpec,
-    ExperimentStatus,
     ExperimentRun,
+    ExperimentStatus,
     RunKind,
     TraceArtifact,
     UpdateCandidate,
@@ -157,3 +161,51 @@ def test_evaluation_harness_creates_planned_run(tmp_path: Path):
     assert loaded is not None
     assert loaded.metrics["target_case_count"] == 1
     assert loaded.status == ExperimentStatus.PLANNED
+
+
+def _orphan_evaluation_run(spec_id: str) -> EvaluationRun:
+    now = utc_now_iso()
+    return EvaluationRun(
+        evaluation_run_id=new_id("evaluation-run"),
+        evaluation_spec_id=spec_id,
+        run_id="run-does-not-exist",
+        subject_type="base_model",
+        subject_id="fake",
+        created_at_utc=now,
+        updated_at_utc=now,
+    )
+
+
+def test_store_enforces_foreign_keys_on_every_connection(tmp_path: Path):
+    store = ExperimentStore(db_path=tmp_path / "exp.db", artifact_dir=tmp_path / "artifacts")
+    spec = EvaluationSpec(
+        evaluation_spec_id=new_id("evaluation-spec"),
+        name="fk-check",
+        target_facts=[EvaluationCase(case_id="t-1", prompt="Q1", expected_response="A1")],
+        created_at_utc=utc_now_iso(),
+    )
+    store.save_evaluation_spec(spec)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.save_evaluation_run(_orphan_evaluation_run(spec.evaluation_spec_id))
+    assert store.list_evaluation_runs() == []
+
+    reopened = ExperimentStore(db_path=tmp_path / "exp.db", artifact_dir=tmp_path / "artifacts")
+    with pytest.raises(sqlite3.IntegrityError):
+        reopened.save_evaluation_run(_orphan_evaluation_run(spec.evaluation_spec_id))
+
+
+def test_store_loads_runs_by_id(tmp_path: Path):
+    store = ExperimentStore(db_path=tmp_path / "exp.db", artifact_dir=tmp_path / "artifacts")
+    now = utc_now_iso()
+    run = store.register_run(
+        ExperimentRun(
+            run_id=new_id("run"),
+            run_kind=RunKind.EXPORT,
+            title="export",
+            created_at_utc=now,
+            updated_at_utc=now,
+        )
+    )
+    assert store.load_run(run.run_id) == run
+    assert store.load_run("missing") is None
